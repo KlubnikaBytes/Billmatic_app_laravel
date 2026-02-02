@@ -159,4 +159,17 @@ class AuthController extends Controller
     ]);
 }
 
+public function businessInfo(Request $request)
+{
+    $business = BusinessDetail::where('user_id', $request->user()->id)->first();
+
+    return response()->json([
+        'success' => true,
+        'data' => [
+            'business_name' => $business->industry ?? 'My Business',
+        ]
+    ]);
+}
+
+
 }

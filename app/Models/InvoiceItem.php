@@ -13,6 +13,8 @@ class InvoiceItem extends Model
         'invoice_id',
         'item_id',
         'description',
+        'opening_stock',   // ✅ ADD
+        'closing_stock',   // ✅ ADD
         'qty',
         'unit',
         'price',
@@ -36,8 +38,12 @@ class InvoiceItem extends Model
         return $this->belongsTo(Invoice::class);
     }
 
-    public function item()
-    {
-        return $this->belongsTo(Item::class);
-    }
+ 
+
+public function item()
+{
+    return $this->belongsTo(Item::class, 'item_id');
+}
+
+
 }

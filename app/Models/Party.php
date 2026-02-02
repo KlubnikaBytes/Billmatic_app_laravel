@@ -20,6 +20,7 @@ class Party extends Model
         'billing_pincode',
         'billing_city',
         'opening_balance',
+        'opening_balance_type', // ✅ ADD THIS
         'credit_period_days',
         'credit_limit',
         'party_category_id',

@@ -19,14 +19,19 @@ class Item extends Model
         'gst_percent',
         'hsn_code',
         'opening_stock',
+        'stock_value',
         'stock_as_of_date',
         'item_code',
         'barcode',
-        'item_category_id',
+        'item_categories', // ✅ NEW
         'image_path',
         'custom_fields',
         'description',
         'imei_list',  // <-- NEW
+        'low_stock_alert',
+        'low_stock_quantity',
+        'show_in_online_store', // ✅ NEW
+
     ];
 
     protected $casts = [
@@ -34,10 +39,20 @@ class Item extends Model
         'purchase_price'   => 'float',
         'gst_percent'      => 'float',
         'opening_stock'    => 'float',
+        'stock_value'        => 'float',   // ✅ ADD THIS
         'stock_as_of_date' => 'date',
         'custom_fields'    => 'array',
-         'imei_list'        => 'array',   // <-- NEW
+        'imei_list'        => 'array',   // <-- NEW
+        'item_categories'  => 'array', // ✅ NEW
+        'low_stock_alert' => 'boolean',
+        'low_stock_quantity' => 'float',
+        'show_in_online_store'   => 'boolean', // ✅ NEW
+
     ];
+
+
+
+
 
     public function category()
     {

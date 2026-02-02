@@ -14,11 +14,25 @@ class Invoice extends Model
         'invoice_date',
         'due_date',
         'party_id',
+        'party_opening_balance', // ✅ ADD
+        'party_closing_balance', // ✅ ADD
         'place_of_supply',
         'subtotal',
         'total_tax',
         'grand_total',
         'notes',
+        'additional_charges',
+        'discount_percent',   // ✅ NEW
+        'discount_amount',
+        'round_off',
+        'tcs_amount',
+
+        // ✅ NEW
+       'received_amount',
+       'balance_amount',
+       'payment_mode',
+       'status', // ✅ ADD THIS
+
     ];
 
     protected $casts = [
@@ -38,4 +52,10 @@ class Invoice extends Model
     {
         return $this->belongsTo(Party::class);
     }
+
+    public function additionalCharges()
+{
+    return $this->hasMany(InvoiceAdditionalCharge::class);
+}
+
 }
