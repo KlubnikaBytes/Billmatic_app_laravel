@@ -11,6 +11,9 @@ use App\Models\InvoiceAdditionalCharge;
 use App\Models\Item;
 use App\Models\Party;
 use Carbon\Carbon;
+use App\Services\PaymentLinkService;
+use App\Services\SmsService;
+
 
 
 class InvoiceController extends Controller
@@ -41,7 +44,7 @@ class InvoiceController extends Controller
 
             // ✅ PAYMENT
             'received_amount' => 'nullable|numeric|min:0',
-            'balance_amount'  => 'nullable|numeric|min:0',
+            // 'balance_amount'  => 'nullable|numeric|min:0',
             'payment_mode'    => 'nullable|string|max:50',
 
             // ✅ ITEMS
@@ -55,70 +58,61 @@ class InvoiceController extends Controller
             'items.*.gst_percent' => 'nullable|numeric|min:0',
         ]);
 
+    
+
+
         return DB::transaction(function () use ($user, $data) {
 
             $subtotal = 0;
             $totalTax = 0;
 
-            // 🔐 1. ITEMS + STOCK DEDUCTION
-            foreach ($data['items'] as &$line) {
 
-                $item = Item::where('id', $line['item_id'])
-                    ->where('user_id', $user->id)
-                    ->lockForUpdate()
-                    ->firstOrFail();
+        $preparedItems = [];
 
-                // if ($item->opening_stock < $line['qty']) {
-                //     throw new \Exception("Insufficient stock for {$item->name}");
-                // }
+        foreach ($data['items'] as $line) {
 
-                // $item->opening_stock -= $line['qty'];
-                // $item->save();
+        $item = Item::where('id', $line['item_id'])
+        ->where('user_id', $user->id)
+        ->lockForUpdate()
+        ->firstOrFail();
 
-                // $qty   = $line['qty'];
-                // $price = $line['price'];
-                // $disc  = $line['discount'] ?? 0;
-                // $gst   = $line['gst_percent'] ?? 0;
+    if ($item->opening_stock < $line['qty']) {
+        throw new \Exception("Insufficient stock for {$item->name}");
+    }
 
-                // $lineAmount = ($qty * $price) - $disc;
-                // $gstAmount  = $lineAmount * ($gst / 100);
+    $openingStock = $item->opening_stock;
 
-                // $line['gst_amount'] = $gstAmount;
-                // $line['line_total'] = $lineAmount + $gstAmount;
+    // 🔻 Deduct stock
+    $item->opening_stock -= $line['qty'];
+    $item->save();
 
-                // $subtotal += $lineAmount;
-                // $totalTax += $gstAmount;
+    $qty   = $line['qty'];
+    $price = $line['price'];
+    $disc  = $line['discount'] ?? 0;
+    $gst   = $line['gst_percent'] ?? 0;
 
-                $openingStock = $item->opening_stock;
+    $lineAmount = ($qty * $price) - $disc;
+    $gstAmount  = $lineAmount * ($gst / 100);
 
-if ($openingStock < $line['qty']) {
-    throw new \Exception("Insufficient stock for {$item->name}");
+    $subtotal += $lineAmount;
+    $totalTax += $gstAmount;
+
+    // ✅ STORE IN NEW ARRAY (SAFE)
+    $preparedItems[] = [
+        'item_id'       => $line['item_id'],
+        'description'   => $line['description'] ?? null,
+        'qty'           => $qty,
+        'unit'          => $line['unit'] ?? 'PCS',
+        'price'         => $price,
+        'discount'      => $disc,
+        'gst_percent'   => $gst,
+        'gst_amount'    => $gstAmount,
+        'line_total'    => $lineAmount + $gstAmount,
+        'opening_stock' => $openingStock,
+        'closing_stock' => $item->opening_stock,
+    ];
 }
 
-// 🔻 Deduct stock
-$item->opening_stock -= $line['qty'];
-$item->save();
-
-$closingStock = $item->opening_stock;
-
-$qty   = $line['qty'];
-$price = $line['price'];
-$disc  = $line['discount'] ?? 0;
-$gst   = $line['gst_percent'] ?? 0;
-
-$lineAmount = ($qty * $price) - $disc;
-$gstAmount  = $lineAmount * ($gst / 100);
-
-// ✅ STORE SNAPSHOT
-$line['opening_stock'] = $openingStock;
-$line['closing_stock'] = $closingStock;
-$line['gst_amount']    = $gstAmount;
-$line['line_total']    = $lineAmount + $gstAmount;
-
-$subtotal += $lineAmount;
-$totalTax += $gstAmount;
-
-            }
 
             // 🔢 2. ADDITIONAL CHARGES
             $additionalTotal = collect($data['additional_charges'] ?? [])
@@ -143,39 +137,33 @@ $totalTax += $gstAmount;
                 + $roundOff
                 + $tcs;
 
-            // 🔢 5. PAYMENT
-            // $receivedAmount = $data['received_amount'] ?? 0;
-            // $balanceAmount  = $data['balance_amount']
-            //     ?? ($grandTotal - $receivedAmount);
 
-            $receivedAmount = $data['received_amount'] ?? 0;
+                $receivedAmount = $data['received_amount'] ?? 0;
 
-            // 🚨 ALWAYS calculate balance from grand total
-            $balanceAmount = max($grandTotal - $receivedAmount, 0);
+            // ✅ MONEY NORMALIZATION (THIS IS CORRECT)
+            $grandTotal     = round($grandTotal, 2);
+            $receivedAmount = round($receivedAmount, 2);
 
-            // ✅ FINAL STATUS LOGIC
-            if ($receivedAmount <= 0) {
-            $status = 'unpaid';
-            } elseif ($balanceAmount <= 0) {
+            $balanceAmount = round($grandTotal - $receivedAmount, 2);
+
+          // 🔐 Force zero for floating-point issues
+           if (abs($balanceAmount) < 0.01) {
+           $balanceAmount = 0;
+           }
+
+            // ✅ FINAL STATUS LOGIC (ONLY ONE ALLOWED)
+            if ($balanceAmount <= 0) {
             $status = 'paid';
+            } elseif ($receivedAmount <= 0) {
+            $status = 'unpaid';
             } else {
             $status = 'partial';
             }
 
 
-                
-           // ✅ INVOICE STATUS (FINAL LOGIC)
-           if ($balanceAmount <= 0) {
-           $status = 'paid';
-           } elseif ($receivedAmount <= 0) {
-           $status = 'unpaid';
-           } else {
-           $status = 'partial';
-           }
-
            // 🔐 FETCH PARTY OPENING BALANCE (SNAPSHOT)
-$party = Party::lockForUpdate()->findOrFail($data['party_id']);
-$partyOpeningBalance = $party->opening_balance;
+           $party = Party::lockForUpdate()->findOrFail($data['party_id']);
+           $partyOpeningBalance = $party->opening_balance;
 
 
             // 🧾 6. CREATE INVOICE
@@ -207,57 +195,90 @@ $partyOpeningBalance = $party->opening_balance;
                 'notes'            => $data['notes'] ?? null,
             ]);
 
+        //     // ===============================
+        //     // 🔗 CREATE PAYMENT LINK
+        //     // ===============================
+        //    $paymentLink = null;
+
+        //    if ($invoice->balance_amount > 0 && $party->contact_number) {
+
+        //  $paymentLink = PaymentLinkService::create($invoice, $party);
+
+        //   $smsText =
+        //    "Dear {$party->party_name}, your invoice {$invoice->invoice_number} "
+        //  . "amount ₹{$invoice->balance_amount}. "
+        //  . "Pay here: {$paymentLink}. Thank you.";
+
+        //   SmsService::sendPaymentLink(
+        //   $party->contact_number,
+        //   $smsText
+        //    );
+        //     }
+
+        // ===============================
+// 🔗 CREATE PAYMENT LINK + SEND SMS
+// // ===============================
+$paymentLink = null;
+
+if ($invoice->balance_amount > 0 && $party->contact_number) {
+
+    // Create Razorpay payment link
+    $paymentLink = PaymentLinkService::create($invoice, $party);
+
+      // ✅ ADD THIS LOG RIGHT HERE 👇
+    \Log::info('SMS_TRIGGER', [
+        'mobile'  => $party->contact_number,
+        'amount'  => $invoice->balance_amount,
+        'invoice' => $invoice->invoice_number,
+        'link'    => $paymentLink,
+    ]);
+
+
+    // Send SMS using DLT template variables
+    SmsService::sendPaymentLink(
+        $party->contact_number,
+        [
+            $invoice->balance_amount,   // {#var#} → Amount
+            $invoice->invoice_number,   // {#var#} → Order / Invoice No
+            $paymentLink                // {#var#} → Payment link
+        ]
+    );
+}
+
+
+
 
 
             // =====================================================
-// 🔁 UPDATE PARTY OPENING BALANCE BASED ON BALANCE AMOUNT
-// =====================================================
+           // 🔁 UPDATE PARTY OPENING BALANCE BASED ON BALANCE AMOUNT
+           // =====================================================
 
-// $party = Party::lockForUpdate()->findOrFail($data['party_id']);
+          $balanceAmount = $invoice->balance_amount ?? 0;
 
-$balanceAmount = $invoice->balance_amount ?? 0;
+          // 🔁 UPDATE PARTY BALANCE
+          if ($balanceAmount > 0) {
+          if ($party->opening_balance_type === 'receive') {
+          $party->opening_balance += $balanceAmount;
+          } else {
+          $party->opening_balance -= $balanceAmount;
+           }
+          $party->save();
+        }
 
-// if ($balanceAmount > 0) {
-//     if ($party->opening_balance_type === 'receive') {
-//         // 🟢 Customer owes you → increase receivable
-//         $party->opening_balance += $balanceAmount;
-//     } else {
-//         // 🔴 You owe supplier → increase payable
-//         $party->opening_balance -= $balanceAmount;
-//     }
+        // ✅ STORE PARTY CLOSING BALANCE SNAPSHOT (ALWAYS)
+        $invoice->update([
+          'party_closing_balance' => $party->opening_balance,
+        ]);
 
-//     $party->save();
 
-//     $partyClosingBalance = $party->opening_balance;
 
-// $invoice->update([
-//     'party_closing_balance' => $partyClosingBalance,
-// ]);
-
-// }
-
-// 🔁 UPDATE PARTY BALANCE
-if ($balanceAmount > 0) {
-    if ($party->opening_balance_type === 'receive') {
-        $party->opening_balance += $balanceAmount;
-    } else {
-        $party->opening_balance -= $balanceAmount;
+           
+            // 🧾 7. SAVE ITEMS (SAFE)
+    foreach ($preparedItems as $line) {
+    $line['invoice_id'] = $invoice->id;
+    InvoiceItem::create($line);
     }
-    $party->save();
-}
 
-// ✅ STORE PARTY CLOSING BALANCE SNAPSHOT (ALWAYS)
-$invoice->update([
-    'party_closing_balance' => $party->opening_balance,
-]);
-
-
-
-            // 🧾 7. SAVE ITEMS
-            foreach ($data['items'] as $line) {
-                $line['invoice_id'] = $invoice->id;
-                InvoiceItem::create($line);
-            }
 
 
 
@@ -273,7 +294,7 @@ $invoice->update([
             }
 
         
-            return response()->json([
+          return response()->json([
     'success' => true,
     'message' => 'Invoice created successfully',
     'data'    => [
@@ -281,53 +302,42 @@ $invoice->update([
         'invoice_date'   => $invoice->invoice_date,
         'due_date'       => $invoice->due_date,
 
-        'subtotal'    => $invoice->subtotal,
-        'total_tax'   => $invoice->total_tax,
-        'grand_total' => $invoice->grand_total,
+        'subtotal'    => (float) $invoice->subtotal,
+        'total_tax'   => (float) $invoice->total_tax,
+        'grand_total' => (float) $invoice->grand_total,
 
-        // ✅ ADD THIS
+        // ✅ MUST SEND THESE
+        'received_amount' => (float) $invoice->received_amount,
+        'balance_amount'  => (float) $invoice->balance_amount,
+        'payment_mode'    => $invoice->payment_mode,
+
         'status' => $invoice->status,
+        'party'  => $invoice->party,
 
-        // ✅ Party
-        'party' => $invoice->party,
+         // ✅ ADD THIS LINE
+        'payment_link' => $paymentLink,  
 
-        // ✅ ITEMS (FINAL & CORRECT)
-        // 'items' => $invoice->items()
-        //     ->with('item')
-        //     ->get()
-        //     ->map(function ($row) {
-        //         return [
-        //             'item_id'     => $row->item_id,
-        //              'description' => $row->item->name, // ✅ ALWAYS CORRECT
-        //             'qty'         => $row->qty,
-        //             'price'       => $row->price,
-        //             'line_total'  => $row->line_total,
-        //         ];
-        //     }),
         'items' => $invoice->items()
-    ->with('item')
-    ->get()
-    ->map(function ($row) {
-        return [
-            'item_id'     => $row->item_id,
-            'description' => $row->item->name,
-            'hsn'         => $row->item->hsn_code ?? '',
-            'qty'         => $row->qty,
-            'unit'        => $row->unit,
-            'price'       => $row->price,
-            'gst_percent' => $row->gst_percent,
-            'gst_amount'  => $row->gst_amount,
-            'line_total'  => $row->line_total,
-        ];
-    }),
-
+            ->with('item')
+            ->get()
+            ->map(function ($row) {
+                return [
+                    'item_id'     => $row->item_id,
+                    'description' => $row->item->name,
+                    'hsn'         => $row->item->hsn_code ?? '',
+                    'qty'         => $row->qty,
+                    'unit'        => $row->unit,
+                    'price'       => $row->price,
+                    'gst_percent' => $row->gst_percent,
+                    'gst_amount'  => $row->gst_amount,
+                    'line_total'  => $row->line_total,
+                ];
+            }),
 
         'additional_charges' => $invoice->additionalCharges,
     ],
 ], 201);
-
-
-        });
+});
     }
 
     public function lastNumber()
@@ -400,8 +410,6 @@ public function salesSummary(Request $request)
         ],
     ]);
 }
-
-
 
 private function getDateRange($range, Request $request)
 {
@@ -494,27 +502,6 @@ public function cashBankSummary(Request $request)
     ]);
 }
 
-// public function cashBankDetails(Request $request)
-// {
-//     $user = $request->user();
-
-//     $invoices = Invoice::where('user_id', $user->id)
-//         ->where('received_amount', '>', 0)
-//         ->orderBy('invoice_date', 'desc')
-//         ->get();
-
-//     return response()->json([
-//         'success' => true,
-//         'data' => $invoices->map(function ($inv) {
-//             return [
-//                 'date'            => $inv->invoice_date->format('d-m-Y'),
-//                 'invoice_id'      => $inv->invoice_number,
-//                 'party_name'      => $inv->party->party_name ?? 'Cash Sale',
-//                 'received_amount' => (float) $inv->received_amount,
-//             ];
-//         }),
-//     ]);
-// }
 
 public function cashBankDetails(Request $request)
 {
@@ -542,11 +529,4 @@ public function cashBankDetails(Request $request)
     ]);
 }
 
-
-
-
-
-   
-
-    
 }

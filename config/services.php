@@ -35,4 +35,15 @@ return [
         ],
     ],
 
+    'razorpay' => [
+    'key' => env('RAZORPAY_KEY'),
+    'secret' => env('RAZORPAY_SECRET'),
+],
+
+'twofactor' => [
+    'key' => env('TWO_FACTOR_API_KEY'),
+    'template_id' => env('TWO_FACTOR_TEMPLATE_ID'),
+],
+
+
 ];

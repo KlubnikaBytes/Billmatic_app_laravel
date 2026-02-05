@@ -13,37 +13,58 @@ use Illuminate\Support\Facades\Auth;
 
 class AuthController extends Controller
 {
-    // public function sendOtp(Request $request)
-    // {
-    //     $request->validate([
-    //         'mobile' => 'required|digits:10'
-    //     ]);
+//     public function sendOtp(Request $request)
+// {
+//     $request->validate([
+//         'mobile' => 'required|digits:10'
+//     ]);
 
-    //     $mobile = $request->mobile;
-    //     $otp = rand(100000, 999999);
+//     $mobile = $request->mobile;
 
-    //     User::updateOrCreate(
-    //         ['mobile' => $mobile],
-    //         [
-    //             'otp' => $otp,
-    //             'otp_expires_at' => now()->addMinutes(10),
-    //             'is_verified' => false
-    //         ]
-    //     );
+//     // find user
+//     $user = User::where('mobile', $mobile)->first();
 
-    //     $apiKey = env('TWO_FACTOR_API_KEY');
-    //     $url = "https://2factor.in/API/V1/$apiKey/SMS/$mobile/$otp";
+//     // If user exists, check cooldown
+//     if ($user && $user->otp_sent_at) {
+//         $secondsPassed = now()->diffInSeconds($user->otp_sent_at);
 
-    //     Http::get($url);
+//         if ($secondsPassed < 30) {
+//             return response()->json([
+//                 'success' => false,
+//                 'message' => 'Please wait before requesting another OTP',
+//                 'seconds_left' => 30 - $secondsPassed
+//             ], 429);
+//         }
+//     }
 
-    //     return response()->json([
-    //         'success' => true,
-    //         'message' => 'OTP sent successfully',
-    //         'otp_debug' => $otp
-    //     ]);
-    // }
+//     // Generate new OTP
+//     $otp = rand(100000, 999999);
 
-    public function sendOtp(Request $request)
+//     // Create or update user
+//     $user = User::updateOrCreate(
+//         ['mobile' => $mobile],
+//         [
+//             'otp' => $otp,
+//             'otp_sent_at' => now(),
+//             'otp_expires_at' => now()->addMinutes(10),
+//             'is_verified' => false
+//         ]
+//     );
+
+//     // Send OTP via 2Factor
+//     $apiKey = env('TWO_FACTOR_API_KEY');
+//     $url = "https://2factor.in/API/V1/$apiKey/SMS/$mobile/$otp";
+//     Http::get($url);
+
+//     return response()->json([
+//         'success' => true,
+//         'message' => 'OTP sent successfully',
+//         'otp_debug' => $otp,  // remove in production
+//         'cooldown_seconds' => 30
+//     ]);
+// }
+
+   public function sendOtp(Request $request)
 {
     $request->validate([
         'mobile' => 'required|digits:10'
@@ -51,10 +72,10 @@ class AuthController extends Controller
 
     $mobile = $request->mobile;
 
-    // find user
+    // Find user
     $user = User::where('mobile', $mobile)->first();
 
-    // If user exists, check cooldown
+    // Cooldown check (30 sec)
     if ($user && $user->otp_sent_at) {
         $secondsPassed = now()->diffInSeconds($user->otp_sent_at);
 
@@ -67,10 +88,10 @@ class AuthController extends Controller
         }
     }
 
-    // Generate new OTP
+    // Generate OTP
     $otp = rand(100000, 999999);
 
-    // Create or update user
+    // Create / Update user
     $user = User::updateOrCreate(
         ['mobile' => $mobile],
         [
@@ -81,18 +102,28 @@ class AuthController extends Controller
         ]
     );
 
-    // Send OTP via 2Factor
+    // ✅ SEND OTP USING JIO DLT APPROVED TEMPLATE
     $apiKey = env('TWO_FACTOR_API_KEY');
-    $url = "https://2factor.in/API/V1/$apiKey/SMS/$mobile/$otp";
-    Http::get($url);
+    $templateName = env('TWO_FACTOR_TEMPLATE_NAME'); // Exact name from 2Factor panel
+
+    Http::asForm()->post(
+        "https://2factor.in/API/V1/$apiKey/ADDON_SERVICES/SEND/TSMS",
+        [
+            'From' => 'KLBNKA',       // Sender ID (DLT approved)
+            'To' => $mobile,
+            'TemplateName' => $templateName,
+            'VAR1' => $otp            // {#var#} in template
+        ]
+    );
 
     return response()->json([
         'success' => true,
         'message' => 'OTP sent successfully',
-        'otp_debug' => $otp,  // remove in production
         'cooldown_seconds' => 30
     ]);
 }
+
+
 
 
    public function verifyOtp(Request $request)
