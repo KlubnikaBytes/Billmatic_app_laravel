@@ -13,6 +13,8 @@ use App\Models\Party;
 use Carbon\Carbon;
 use App\Services\PaymentLinkService;
 use App\Services\SmsService;
+use App\Models\BusinessDetail;
+
 
 
 
@@ -313,6 +315,13 @@ if ($invoice->balance_amount > 0 && $party->contact_number) {
 
         'status' => $invoice->status,
         'party'  => $invoice->party,
+
+            // ✅ ADD THIS (BUSINESS INFO)
+        'business' => [
+            'industry' => $business->industry ?? '',
+            'gstin'   => $business->gst_number ?? '',
+            'address' => $business->address ?? '',
+        ],
 
          // ✅ ADD THIS LINE
         'payment_link' => $paymentLink,  

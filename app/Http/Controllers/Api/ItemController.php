@@ -249,6 +249,16 @@ public function stockSummary(Request $request)
     ]);
 }
 
+// ✅ ADD THIS METHOD (REQUIRED)
+private function calculateStockValue($qty, $purchasePrice)
+{
+    $qty = (float) $qty;
+    $purchasePrice = (float) $purchasePrice;
+
+    return round($qty * $purchasePrice, 2);
+}
+
+
 
 
 
