@@ -6,91 +6,212 @@ use Illuminate\Http\Request;
 use App\Models\Party;
 use App\Models\Invoice; // ✅ ADD THIS LINE
 use App\Models\ReceivedPayment;
+use App\Models\Purchase;
+
 
 
 class PartyController extends Controller
 {
+   
+
     public function index(Request $request)
-    {
-        $user = $request->user();
+{
+    $user = $request->user();
+    $search = $request->query('search');
 
-        $parties = Party::where('user_id', $user->id)
-            ->orderBy('party_name')
-            ->get();
+    $query = Party::where('user_id', $user->id);
 
-        return response()->json([
-            'success' => true,
-            'data'    => $parties,
-        ]);
+    // 🔍 SEARCH LOGIC
+    if ($search) {
+        $query->where(function ($q) use ($search) {
+            $q->where('party_name', 'LIKE', "%$search%")
+              ->orWhere('contact_number', 'LIKE', "%$search%")
+              ->orWhere('gst_number', 'LIKE', "%$search%")
+              ->orWhere('pan_number', 'LIKE', "%$search%")
+              ->orWhere('contact_person_name', 'LIKE', "%$search%")
+              ->orWhere('dob', 'LIKE', "%$search%");
+        });
     }
+
+    $parties = $query->orderBy('party_name')->get();
+
+    return response()->json([
+        'success' => true,
+        'data' => $parties,
+    ]);
+}
+
+    // public function store(Request $request)
+    // {
+    //     $user = $request->user();
+
+    //     $data = $request->validate([
+    //         'party_name'          => 'required|string|max:255',
+    //         'contact_number'      => 'nullable|string|max:20',
+    //         'party_type'          => 'required|in:customer,supplier',
+
+    //         'gst_number'          => 'nullable|string|max:50',
+    //         'pan_number'          => 'nullable|string|max:50',
+
+    //         'billing_street'      => 'nullable|string|max:255',
+    //         'billing_state'       => 'nullable|string|max:100',
+    //         'billing_pincode'     => 'nullable|string|max:10',
+    //         'billing_city'        => 'nullable|string|max:100',
+
+    //         'opening_balance'     => 'nullable|numeric',
+    //         'opening_balance_type' => 'required|in:receive,pay', // ✅ ADD
+
+    //         'credit_period_days'  => 'nullable|integer',
+    //         'credit_limit'        => 'nullable|numeric',
+
+    //         'party_category_id'   => 'nullable|exists:party_categories,id',
+    //         'contact_person_name' => 'nullable|string|max:255',
+    //         'dob'                 => 'nullable|date',
+    //     ]);
+
+    //     $data['user_id'] = $user->id;
+
+    //     $party = Party::create($data);
+
+    //     return response()->json([
+    //         'success' => true,
+    //         'message' => 'Party created successfully',
+    //         'data'    => $party,
+    //     ], 201);
+    // }
 
     public function store(Request $request)
-    {
-        $user = $request->user();
-
-        $data = $request->validate([
-            'party_name'          => 'required|string|max:255',
-            'contact_number'      => 'nullable|string|max:20',
-            'party_type'          => 'required|in:customer,supplier',
-
-            'gst_number'          => 'nullable|string|max:50',
-            'pan_number'          => 'nullable|string|max:50',
-
-            'billing_street'      => 'nullable|string|max:255',
-            'billing_state'       => 'nullable|string|max:100',
-            'billing_pincode'     => 'nullable|string|max:10',
-            'billing_city'        => 'nullable|string|max:100',
-
-            'opening_balance'     => 'nullable|numeric',
-            'opening_balance_type' => 'required|in:receive,pay', // ✅ ADD
-
-            'credit_period_days'  => 'nullable|integer',
-            'credit_limit'        => 'nullable|numeric',
-
-            'party_category_id'   => 'nullable|exists:party_categories,id',
-            'contact_person_name' => 'nullable|string|max:255',
-            'dob'                 => 'nullable|date',
-        ]);
-
-        $data['user_id'] = $user->id;
-
-        $party = Party::create($data);
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Party created successfully',
-            'data'    => $party,
-        ], 201);
-    }
-
-
-    public function update(Request $request, $id)
 {
-    $party = Party::where('user_id', auth()->id())
-        ->findOrFail($id);
+    $user = $request->user();
+
+    // ✅ FORCE UPPERCASE (IMPORTANT)
+    $request->merge([
+        'gst_number' => $request->gst_number ? strtoupper($request->gst_number) : null,
+        'pan_number' => $request->pan_number ? strtoupper($request->pan_number) : null,
+    ]);
 
     $data = $request->validate([
-        'party_name'           => 'required|string|max:255',
-        'contact_number'       => 'nullable|string|max:20',
-        'party_type'           => 'required|in:customer,supplier',
+        'party_name'     => 'required|string|max:255',
+        'contact_number' => 'nullable|string|max:20',
+        'party_type'     => 'required|in:customer,supplier',
 
-        'gst_number'           => 'nullable|string|max:50',
-        'pan_number'           => 'nullable|string|max:50',
+        // ✅ FIXED VALIDATION
+        'gst_number' => [
+            'nullable',
+            'regex:/^[0-3][0-9][A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/'
+        ],
 
-        'billing_street'       => 'nullable|string|max:255',
-        'billing_state'        => 'nullable|string|max:100',
-        'billing_pincode'      => 'nullable|string|max:10',
-        'billing_city'         => 'nullable|string|max:100',
+        'pan_number' => [
+            'nullable',
+            'regex:/^[A-Z]{5}[0-9]{4}[A-Z]$/'
+        ],
+
+        'billing_street'  => 'nullable|string|max:255',
+        'billing_state'   => 'nullable|string|max:100',
+        'billing_pincode' => 'nullable|string|max:10',
+        'billing_city'    => 'nullable|string|max:100',
 
         'opening_balance'      => 'nullable|numeric',
         'opening_balance_type' => 'required|in:receive,pay',
 
-        'credit_period_days'   => 'nullable|integer',
-        'credit_limit'         => 'nullable|numeric',
+        'credit_period_days' => 'nullable|integer',
+        'credit_limit'       => 'nullable|numeric',
 
-        'party_category_id'    => 'nullable|exists:party_categories,id',
-        'contact_person_name'  => 'nullable|string|max:255',
-        'dob'                  => 'nullable|date',
+        'party_category_id'   => 'nullable|exists:party_categories,id',
+        'contact_person_name' => 'nullable|string|max:255',
+        'dob'                 => 'nullable|date',
+    ]);
+
+    $data['user_id'] = $user->id;
+
+    $party = Party::create($data);
+
+    return response()->json([
+        'success' => true,
+        'message' => 'Party created successfully',
+        'data'    => $party,
+    ], 201);
+}
+
+
+//     public function update(Request $request, $id)
+// {
+//     $party = Party::where('user_id', auth()->id())
+//         ->findOrFail($id);
+
+//     $data = $request->validate([
+//         'party_name'           => 'required|string|max:255',
+//         'contact_number'       => 'nullable|string|max:20',
+//         'party_type'           => 'required|in:customer,supplier',
+
+//         'gst_number'           => 'nullable|string|max:50',
+//         'pan_number'           => 'nullable|string|max:50',
+
+//         'billing_street'       => 'nullable|string|max:255',
+//         'billing_state'        => 'nullable|string|max:100',
+//         'billing_pincode'      => 'nullable|string|max:10',
+//         'billing_city'         => 'nullable|string|max:100',
+
+//         'opening_balance'      => 'nullable|numeric',
+//         'opening_balance_type' => 'required|in:receive,pay',
+
+//         'credit_period_days'   => 'nullable|integer',
+//         'credit_limit'         => 'nullable|numeric',
+
+//         'party_category_id'    => 'nullable|exists:party_categories,id',
+//         'contact_person_name'  => 'nullable|string|max:255',
+//         'dob'                  => 'nullable|date',
+//     ]);
+
+//     $party->update($data);
+
+//     return response()->json([
+//         'success' => true,
+//         'message' => 'Party updated successfully',
+//         'data'    => $party,
+//     ]);
+// }
+
+public function update(Request $request, $id)
+{
+    $party = Party::where('user_id', auth()->id())->findOrFail($id);
+
+    // ✅ FORCE UPPERCASE
+    $request->merge([
+        'gst_number' => $request->gst_number ? strtoupper($request->gst_number) : null,
+        'pan_number' => $request->pan_number ? strtoupper($request->pan_number) : null,
+    ]);
+
+    $data = $request->validate([
+        'party_name'     => 'required|string|max:255',
+        'contact_number' => 'nullable|string|max:20',
+        'party_type'     => 'required|in:customer,supplier',
+
+        // ✅ FIXED VALIDATION
+        'gst_number' => [
+            'nullable',
+            'regex:/^[0-3][0-9][A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/'
+        ],
+
+        'pan_number' => [
+            'nullable',
+            'regex:/^[A-Z]{5}[0-9]{4}[A-Z]$/'
+        ],
+
+        'billing_street'  => 'nullable|string|max:255',
+        'billing_state'   => 'nullable|string|max:100',
+        'billing_pincode' => 'nullable|string|max:10',
+        'billing_city'    => 'nullable|string|max:100',
+
+        'opening_balance'      => 'nullable|numeric',
+        'opening_balance_type' => 'required|in:receive,pay',
+
+        'credit_period_days' => 'nullable|integer',
+        'credit_limit'       => 'nullable|numeric',
+
+        'party_category_id'   => 'nullable|exists:party_categories,id',
+        'contact_person_name' => 'nullable|string|max:255',
+        'dob'                 => 'nullable|date',
     ]);
 
     $party->update($data);
@@ -148,107 +269,6 @@ public function destroy($id)
     ]);
 }
 
-// // ========================================
-// // 📄 FETCH ALL INVOICES (ALL STATUS)
-// // ========================================
-// public function allInvoices($id)
-// {
-//     // 🔐 Ensure party belongs to logged-in user
-//     $party = Party::where('user_id', auth()->id())
-//         ->findOrFail($id);
-
-//     // ✅ Fetch ALL invoices (paid + partial + unpaid)
-//     $invoices = Invoice::where('party_id', $id)
-//         ->orderBy('invoice_date', 'desc')
-//         ->get([
-//             'id',
-//             'invoice_number',
-//             'invoice_date',
-//             'grand_total',
-//             'received_amount',
-//             'balance_amount',
-//             'status', // ✅ IMPORTANT
-//         ]);
-
-//     return response()->json([
-//         'success' => true,
-//         'party'   => [
-//             'id'                   => $party->id,
-//             'party_name'           => $party->party_name,
-//             'opening_balance'      => (float) $party->opening_balance,
-//             'opening_balance_type' => $party->opening_balance_type,
-//         ],
-//         'invoices' => $invoices,
-//     ]);
-// }
-
-// // ========================================
-// // 🔄 ALL TRANSACTIONS (HOME DASHBOARD)
-// // ========================================
-// public function allTransactions(Request $request)
-// {
-//     $user = $request->user();
-
-//     // ✅ Get all party IDs of logged-in user
-//     $partyIds = Party::where('user_id', $user->id)->pluck('id');
-
-//     // // 📄 Invoices
-//     // $invoices = Invoice::whereIn('party_id', $partyIds)
-//     //     ->with('party:id,party_name')
-//     //     ->get()
-//     //     ->map(function ($inv) {
-//     //         return [
-//     //             'type'       => 'invoice',
-//     //             'party_name' => $inv->party->party_name ?? 'Unknown Party',
-//     //             'number'     => $inv->invoice_number,
-//     //             'date'       => $inv->invoice_date,
-//     //             'status'     => $inv->status,
-//     //             'amount'     => $inv->balance_amount,
-//     //         ];
-//     //     });
-
-//     $invoices = Invoice::whereIn('party_id', $partyIds)
-//     ->with('party:id,party_name')
-//     ->get()
-//     ->map(function ($inv) {
-//         return [
-//             'type'           => 'invoice',
-//             'party_name'     => $inv->party->party_name ?? 'Unknown Party',
-//             'number'         => $inv->invoice_number,
-//             'date'           => $inv->invoice_date,
-//             'due_date'       => $inv->due_date, // ✅ IMPORTANT
-//             'status'         => $inv->status,
-//             'grand_total'    => $inv->grand_total,
-//             'balance_amount' => $inv->balance_amount,
-//         ];
-//     });
-
-
-//     // 💰 Payments
-//     $payments = ReceivedPayment::whereIn('party_id', $partyIds)
-//         ->with('party:id,party_name')
-//         ->get()
-//         ->map(function ($pay) {
-//             return [
-//                 'type'       => 'payment',
-//                 'party_name' => $pay->party->party_name ?? 'Unknown Party',
-//                 'number'     => $pay->payment_number,
-//                 'date'       => $pay->payment_date,
-//                 'amount'     => $pay->amount,
-//             ];
-//         });
-
-//     // 🔀 Merge + sort
-//     $transactions = $invoices
-//         ->merge($payments)
-//         ->sortByDesc('date')
-//         ->values();
-
-//     return response()->json([
-//         'success' => true,
-//         'transactions' => $transactions,
-//     ]);
-// }
 
 // ========================================
 // 🔄 ALL TRANSACTIONS (HOME DASHBOARD)
@@ -279,6 +299,11 @@ public function allTransactions(Request $request)
         ->map(function ($inv) {
             return [
                 'type'           => 'invoice',
+
+                //need it add in server
+                  // ✅ ADD THIS LINE (VERY IMPORTANT)
+                'invoice_id'     => $inv->id,
+                
                 'party_name'     => $inv->party->party_name ?? 'Unknown Party',
                 'number'         => $inv->invoice_number,
                 'date'           => $inv->invoice_date,
@@ -305,26 +330,85 @@ public function allTransactions(Request $request)
             return [
                 'type'       => 'payment',
                 'party_name' => $pay->party->party_name ?? 'Unknown Party',
+                // 'number'     => $pay->payment_number,
+                // 'number'     => $pay->id,
                 'number'     => $pay->payment_number,
                 'date'       => $pay->payment_date,
                 'amount'     => (float) $pay->amount,
             ];
         });
 
+        // =====================================
+// 🛒 PURCHASE QUERY (ADD THIS)
+// =====================================
+$purchaseQuery = Purchase::whereIn('party_id', $partyIds)
+    ->with('party:id,party_name');
+
+if ($from && $to) {
+    $purchaseQuery->whereBetween('purchase_date', [$from, $to]);
+}
+
+$purchases = $purchaseQuery
+    ->get()
+    ->map(function ($p) {
+        return [
+            'type'           => 'purchase', // ✅ IMPORTANT
+            'party_name'     => $p->party->party_name ?? 'Unknown Party',
+            'number'         => $p->purchase_number,
+            'date'           => $p->purchase_date,
+            'due_date'       => $p->due_date,
+            'status'         => $p->status,
+            'grand_total'    => (float) $p->grand_total,
+            'balance_amount' => (float) $p->balance_amount,
+        ];
+    });
+
     // =====================================
     // 🔀 MERGE + SORT (LATEST FIRST)
     // =====================================
-    $transactions = $invoices
-        ->merge($payments)
-        ->sortByDesc('date')
-        ->values();
+    // $transactions = $invoices
+    //     ->merge($payments)
+    //     ->sortByDesc('date')
+    //     ->values();
 
-    return response()->json([
-        'success'      => true,
-        'transactions' => $transactions,
-    ]);
+    // return response()->json([
+    //     'success'      => true,
+    //     'transactions' => $transactions,
+    // ]);
+
+    // =====================================
+// 🔀 MERGE + SORT
+// =====================================
+$transactions = $invoices
+    ->merge($payments)
+    ->merge($purchases) // ✅ ADD THIS
+    ->sortByDesc('date')
+    ->values();
+
+// =====================================
+// 📄 PAGINATION (ADD THIS)
+// =====================================
+$page = (int) $request->query('page', 1);
+$perPage = 10;
+
+$total = $transactions->count();
+
+$items = $transactions
+    ->slice(($page - 1) * $perPage, $perPage)
+    ->values();
+
+$lastPage = (int) ceil($total / $perPage);
+
+// =====================================
+// ✅ FINAL RESPONSE
+// =====================================
+return response()->json([
+    'success' => true,
+    'data' => $items,
+    'current_page' => $page,
+    'last_page' => $lastPage,
+]);
 }
-
 
 
 
@@ -346,6 +430,9 @@ public function transactions($id)
                 'id'              => $inv->id,
                 'number'          => $inv->invoice_number,
                 'date'            => $inv->invoice_date,
+
+                // ✅ ADD THIS LINE
+                'due_date'        => $inv->due_date,
                 'grand_total'     => $inv->grand_total,
                 'received_amount' => $inv->received_amount,
                 'balance_amount'  => $inv->balance_amount,
@@ -360,6 +447,8 @@ public function transactions($id)
             return [
                 'type'         => 'payment',
                 'id'           => $pay->id,
+                // 'number'       => $pay->payment_number,
+                // 'number'     => $pay->id,
                 'number'       => $pay->payment_number,
                 'date'         => $pay->payment_date,
                 'amount'       => $pay->amount,
@@ -373,16 +462,7 @@ public function transactions($id)
         ->sortByDesc('date')
         ->values();
 
-    // return response()->json([
-    //     'success' => true,
-    //     'party'   => [
-    //         'id'                   => $party->id,
-    //         'party_name'           => $party->party_name,
-    //         'opening_balance'      => (float) $party->opening_balance,
-    //         'opening_balance_type' => $party->opening_balance_type,
-    //     ],
-    //     'transactions' => $transactions,
-    // ]);
+    
     return response()->json([
     'success' => true,
     'party'   => [
@@ -419,26 +499,6 @@ public function show($id)
 }
 
 
-// public function dashboardTotals(Request $request)
-// {
-//     $user = $request->user();
-
-//     $toCollect = Party::where('user_id', $user->id)
-//         ->where('opening_balance_type', 'receive')
-//         ->sum('opening_balance');
-
-//     $toPay = Party::where('user_id', $user->id)
-//         ->where('opening_balance_type', 'pay')
-//         ->sum('opening_balance');
-
-//     return response()->json([
-//         'success' => true,
-//         'data' => [
-//             'to_collect' => (float) $toCollect,
-//             'to_pay' => (float) $toPay,
-//         ],
-//     ]);
-// }
 
 public function dashboardTotals(Request $request)
 {
@@ -468,9 +528,4 @@ public function dashboardTotals(Request $request)
         ],
     ]);
 }
-
-
-
-
-
 }

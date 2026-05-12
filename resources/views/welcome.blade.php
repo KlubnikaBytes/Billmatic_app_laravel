@@ -595,11 +595,11 @@
 </footer>
 
 
-<script>
+<!-- <script>
 if (!localStorage.getItem('token')) {
     window.location.href = '/start-free-billing';
 }
-</script>
+</script> -->
 
 </body>
 </html>

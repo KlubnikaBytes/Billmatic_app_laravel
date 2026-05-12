@@ -202,5 +202,40 @@ public function businessInfo(Request $request)
     ]);
 }
 
+public function refresh()
+{
+    try {
+        $newToken = JWTAuth::refresh(JWTAuth::getToken());
+
+        return response()->json([
+            'success' => true,
+            'token' => $newToken,
+        ]);
+    } catch (\Exception $e) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Token refresh failed'
+        ], 401);
+    }
+}
+
+public function logout(Request $request)
+{
+    try {
+        JWTAuth::invalidate(JWTAuth::getToken());
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Logged out successfully'
+        ]);
+    } catch (\Exception $e) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Failed to logout'
+        ], 500);
+    }
+}
+
+
 
 }

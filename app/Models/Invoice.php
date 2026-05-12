@@ -31,6 +31,7 @@ class Invoice extends Model
        'received_amount',
        'balance_amount',
        'payment_mode',
+       'payment_link',
        'status', // ✅ ADD THIS
 
     ];

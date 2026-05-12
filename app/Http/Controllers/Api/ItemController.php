@@ -7,6 +7,10 @@ use App\Models\Item;
 use App\Models\InvoiceItem;
 use App\Models\Invoice;
 
+// need to add in server
+use Barryvdh\DomPDF\Facade\Pdf;
+
+
 class ItemController extends Controller
 {
 
@@ -19,25 +23,47 @@ class ItemController extends Controller
         ->where('user_id', $user->id)
         ->firstOrFail();
 
-    return response()->json([
-        'success' => true,
-        'data' => $item,
-    ]);
+    $currentStock = $item->opening_stock;
+$purchasePrice = $item->purchase_price ?? 0;
+
+$item->stock_value = round($currentStock * $purchasePrice, 2);
+
+return response()->json([
+    'success' => true,
+    'data' => $item,
+]);
 }
 
+
+
     public function index(Request $request)
-    {
-        $user = $request->user();
+{
+    $user = $request->user();
+    $search = $request->query('search');
 
-        $items = Item::where('user_id', $user->id)
-            ->orderBy('name')
-            ->get();
+    $query = Item::where('user_id', $user->id);
 
-        return response()->json([
-            'success' => true,
-            'data'    => $items,
-        ]);
+    // 🔍 APPLY SEARCH
+    if ($search) {
+        $query->where(function ($q) use ($search) {
+            $q->where('name', 'LIKE', "%$search%")
+              ->orWhere('item_code', 'LIKE', "%$search%")
+              ->orWhere('hsn_code', 'LIKE', "%$search%")
+              ->orWhere('barcode', 'LIKE', "%$search%")
+
+              // JSON fields (important 🔥)
+              ->orWhereJsonContains('imei_list', $search)
+              ->orWhere('custom_fields', 'LIKE', "%$search%");
+        });
     }
+
+    $items = $query->orderBy('name')->get();
+
+    return response()->json([
+        'success' => true,
+        'data' => $items,
+    ]);
+}
 
     public function store(Request $request)
     {
@@ -225,6 +251,64 @@ public function destroy(Request $request, $id)
     ]);
 }
 
+// public function stockSummary(Request $request)
+// {
+//     $user = $request->user();
+
+//     $items = Item::where('user_id', $user->id)->get();
+
+//     return response()->json([
+//         'success' => true,
+//         'data' => [
+//             'total_stock_value' => round($items->sum('stock_value'), 2),
+//             'items' => $items->map(function ($item) {
+//                 return [
+//                     'id'       => $item->id,
+//                     'name'     => $item->name,
+//                     'barcode'  => $item->barcode,
+//                     'quantity' => (float) $item->opening_stock,
+//                     'unit'     => $item->unit,
+//                     'value'    => (float) $item->stock_value,
+//                 ];
+//             }),
+//         ],
+//     ]);
+// }
+
+
+// need to add in server
+// public function stockSummary(Request $request)
+// {
+//     $user = $request->user();
+
+//     $items = Item::where('user_id', $user->id)->get();
+
+//     return response()->json([
+//         'success' => true,
+//         'data' => [
+//             'total_stock_value' => round($items->sum('stock_value'), 2),
+//          'items' => $items->map(function ($item) {
+//     return [
+//         'id' => $item->id,
+//         'name' => $item->name,
+//         'barcode' => $item->barcode,
+
+//         // ✅ NEW FIELDS (for report screen)
+//         'batch_no' => '-', // keep default or update later
+//         'item_code' => $item->item_code,
+//         'purchase_price' => (float) ($item->purchase_price ?? 0),
+//         'selling_price' => (float) ($item->sales_price ?? 0),
+
+//         // ✅ EXISTING
+//         'quantity' => (float) $item->opening_stock,
+//         'unit' => $item->unit,
+//         'value' => (float) $item->stock_value,
+//     ];
+// }),
+//         ],
+//     ]);
+// }
+
 public function stockSummary(Request $request)
 {
     $user = $request->user();
@@ -234,20 +318,60 @@ public function stockSummary(Request $request)
     return response()->json([
         'success' => true,
         'data' => [
-            'total_stock_value' => round($items->sum('stock_value'), 2),
+            'total_stock_value' => round($items->map(function ($item) {
+
+                // ✅ USE DIRECT STOCK (NO EXTRA CALCULATION)
+                return ($item->opening_stock ?? 0) * ($item->purchase_price ?? 0);
+
+            })->sum(), 2),
+
             'items' => $items->map(function ($item) {
+
+                $currentStock = $item->opening_stock ?? 0;
+                $stockValue = $currentStock * ($item->purchase_price ?? 0);
+
                 return [
-                    'id'       => $item->id,
-                    'name'     => $item->name,
-                    'barcode'  => $item->barcode,
-                    'quantity' => (float) $item->opening_stock,
-                    'unit'     => $item->unit,
-                    'value'    => (float) $item->stock_value,
+                    'id' => $item->id,
+                    'name' => $item->name,
+                    'barcode' => $item->barcode,
+
+                    'batch_no' => '-',
+                    'item_code' => $item->item_code,
+                    'purchase_price' => (float) ($item->purchase_price ?? 0),
+                    'selling_price' => (float) ($item->sales_price ?? 0),
+
+                    // ✅ FINAL FIX
+                    'quantity' => (float) $currentStock,
+                    'unit' => $item->unit,
+                    'value' => round($stockValue, 2),
                 ];
             }),
         ],
     ]);
 }
+
+//need to add in server
+public function stockSummaryPdf(Request $request)
+{
+    $user = $request->user();
+
+    $items = Item::where('user_id', $user->id)->get();
+
+    $total = $items->sum('stock_value');
+
+    // ✅ ADD THIS (TOTAL QTY)
+    $totalQty = $items->sum('opening_stock');
+
+    $pdf = Pdf::loadView('pdf.stock_summary', [
+        'items' => $items,
+        'total' => $total,
+        'totalQty' => $totalQty, // ✅ PASS TO BLADE
+        'date'  => now()->format('d/m/Y'),
+    ]);
+
+    return $pdf->download('stock-summary.pdf'); // ✅ force download
+}
+
 
 // ✅ ADD THIS METHOD (REQUIRED)
 private function calculateStockValue($qty, $purchasePrice)
@@ -257,10 +381,6 @@ private function calculateStockValue($qty, $purchasePrice)
 
     return round($qty * $purchasePrice, 2);
 }
-
-
-
-
 
 }
 

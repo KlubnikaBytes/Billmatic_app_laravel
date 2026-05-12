@@ -99,16 +99,30 @@ class ReceivedPaymentController extends Controller
             return response()->json([
                 'success'     => true,
                 'data'        => $payment,
-                'payment_no'  => $payment->payment_number, // 👈 IMPORTANT
+                // 'payment_no'  => $payment->payment_number, // 👈 IMPORTANT
+                // 'payment_no'  => $payment->id,
+                'payment_no'  => $payment->payment_number,
                 'new_balance' => $party->opening_balance,
             ], 201);
         });
     }
 
-    public function nextNumber()
+//     public function nextNumber()
+// {
+//     return response()->json([
+//         'next_number' => (ReceivedPayment::max('id') ?? 0) + 1
+//     ]);
+// }
+
+public function nextNumber(Request $request)
 {
+    $user = $request->user();
+
+    $nextNumber = ReceivedPayment::where('user_id', $user->id)
+        ->max('payment_number');
+
     return response()->json([
-        'next_number' => (ReceivedPayment::max('payment_number') ?? 0) + 1
+        'next_number' => ($nextNumber ?? 0) + 1
     ]);
 }
 
