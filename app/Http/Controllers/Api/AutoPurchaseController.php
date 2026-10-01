@@ -9,6 +9,7 @@ use App\Models\PurchaseItem;
 use App\Models\Item;
 use App\Models\Party;
 use Illuminate\Support\Facades\DB;
+use App\Models\PurchaseAdditionalCharge;
 
 class AutoPurchaseController extends Controller
 {
@@ -16,17 +17,51 @@ class AutoPurchaseController extends Controller
     {
         $user = $request->user();
 
-        $data = $request->validate([
-            'party_name' => 'required|string',
-            'place_of_supply' => 'nullable|string',
-            'items' => 'required|array|min:1',
+        // $data = $request->validate([
+        //     'party_name' => 'required|string',
+        //     'place_of_supply' => 'nullable|string',
+        //     'items' => 'required|array|min:1',
 
-            'items.*.description' => 'required|string',
-            'items.*.qty' => 'required|numeric',
-            'items.*.price' => 'required|numeric',
-            'items.*.gst_percent' => 'nullable|numeric',
-            'items.*.hsn' => 'nullable|string',
-        ]);
+        //     'items.*.description' => 'required|string',
+        //     'items.*.qty' => 'required|numeric',
+        //     'items.*.price' => 'required|numeric',
+        //     'items.*.gst_percent' => 'nullable|numeric',
+        //     'items.*.hsn' => 'nullable|string',
+        // ]);
+
+        $data = $request->validate([
+    'party_name' => 'required|string',
+    'place_of_supply' => 'nullable|string',
+
+    'items' => 'required|array|min:1',
+
+    'items.*.description' => 'required|string',
+    'items.*.qty' => 'required|numeric',
+    'items.*.price' => 'required|numeric',
+    'items.*.gst_percent' => 'nullable|numeric',
+    'items.*.hsn' => 'nullable|string',
+
+    // =====================================================
+    // OCR TOTALS / ADJUSTMENTS
+    // =====================================================
+
+    'subtotal' => 'nullable|numeric',
+    'total_tax' => 'nullable|numeric',
+
+    'additional_charge_total' => 'nullable|numeric',
+
+    'discount_amount' => 'nullable|numeric',
+    'discount_percent' => 'nullable|numeric',
+
+    'round_off' => 'nullable|numeric',
+
+    'tcs_amount' => 'nullable|numeric',
+
+    'grand_total' => 'nullable|numeric',
+
+    'received_amount' => 'nullable|numeric',
+    'balance_amount' => 'nullable|numeric',
+]);
 
         return DB::transaction(function () use ($data, $user) {
 
@@ -103,7 +138,122 @@ class AutoPurchaseController extends Controller
                 ];
             }
 
-            $grandTotal = $subtotal + $totalTax;
+            // $grandTotal = $subtotal + $totalTax;
+
+            // =====================================================
+// ADDITIONAL CHARGES
+// =====================================================
+
+$additionalTotal = (float) (
+    $data['additional_charge_total'] ?? 0
+);
+
+
+// =====================================================
+// DISCOUNT
+// =====================================================
+
+$discountAmount = (float) (
+    $data['discount_amount'] ?? 0
+);
+
+
+// =====================================================
+// ROUND OFF
+// =====================================================
+
+$roundOff = (float) (
+    $data['round_off'] ?? 0
+);
+
+
+// =====================================================
+// TCS
+// =====================================================
+
+$tcsAmount = (float) (
+    $data['tcs_amount'] ?? 0
+);
+
+
+// =====================================================
+// GRAND TOTAL
+// =====================================================
+
+// =====================================================
+// CALCULATED GRAND TOTAL
+// =====================================================
+
+$calculatedGrandTotal =
+    $subtotal
+    + $totalTax
+    + $additionalTotal
+    - $discountAmount
+    + $roundOff
+    + $tcsAmount;
+
+$calculatedGrandTotal =
+    round(
+        $calculatedGrandTotal,
+        2
+    );
+
+// =====================================================
+// OCR GRAND TOTAL
+// =====================================================
+
+$ocrGrandTotal = null;
+
+if (
+    isset($data['grand_total']) &&
+    $data['grand_total'] !== null
+) {
+
+    $ocrGrandTotal =
+        round(
+            (float)
+            $data['grand_total'],
+            2
+        );
+}
+
+// =====================================================
+// GRAND TOTAL DECISION
+// =====================================================
+
+if (
+    $ocrGrandTotal !== null &&
+    abs(
+        $ocrGrandTotal -
+        $calculatedGrandTotal
+    ) <= 1.00
+) {
+
+    /*
+     * OCR total and calculated total agree.
+     * Use OCR total to preserve invoice rounding.
+     */
+
+    $grandTotal =
+        $ocrGrandTotal;
+
+} else {
+
+    /*
+     * Calculated total is the trusted value
+     * when OCR total and line calculation
+     * disagree substantially.
+     */
+
+    $grandTotal =
+        $calculatedGrandTotal;
+}
+
+$grandTotal =
+    round(
+        $grandTotal,
+        2
+    );
 
            
             // ================= PURCHASE NUMBER =================
@@ -126,18 +276,155 @@ class AutoPurchaseController extends Controller
         $purchaseNumber = 'AUTO-' . $nextNumber;
 
             // ================= CREATE PURCHASE =================
-            $purchase = Purchase::create([
-                'user_id' => $user->id,
-                // 'purchase_number' => 'AUTO-' . time(),
-                'purchase_number' => $purchaseNumber,
-                'purchase_date' => now(),
-                'party_id' => $party->id,
-                'place_of_supply' => $data['place_of_supply'],
-                'subtotal' => $subtotal,
-                'total_tax' => $totalTax,
-                'grand_total' => $grandTotal,
-                'status' => 'paid',
-            ]);
+            // $purchase = Purchase::create([
+            //     'user_id' => $user->id,
+            //     // 'purchase_number' => 'AUTO-' . time(),
+            //     'purchase_number' => $purchaseNumber,
+            //     'purchase_date' => now(),
+            //     'party_id' => $party->id,
+            //     'place_of_supply' => $data['place_of_supply'],
+            //     'subtotal' => $subtotal,
+            //     'total_tax' => $totalTax,
+            //     'grand_total' => $grandTotal,
+            //     'status' => 'paid',
+            // ]);
+
+            // =====================================================
+// PAYMENT
+// =====================================================
+
+$receivedAmount = (float) (
+    $data['received_amount'] ?? 0
+);
+
+// =====================================================
+// PROTECT PAYMENT
+// =====================================================
+
+if (
+    $receivedAmount < 0
+) {
+    $receivedAmount = 0;
+}
+
+if (
+    $receivedAmount > $grandTotal
+) {
+    $receivedAmount =
+        $grandTotal;
+}
+
+$receivedAmount =
+    round(
+        $receivedAmount,
+        2
+    );
+
+$balanceAmount =
+    round(
+        $grandTotal -
+        $receivedAmount,
+        2
+    );
+
+if (
+    abs($balanceAmount) < 0.01
+) {
+    $balanceAmount = 0;
+}
+if (abs($balanceAmount) < 0.01) {
+    $balanceAmount = 0;
+}
+
+
+// =====================================================
+// STATUS
+// =====================================================
+
+if ($balanceAmount <= 0) {
+
+    $status = 'paid';
+
+} elseif ($receivedAmount <= 0) {
+
+    $status = 'unpaid';
+
+} else {
+
+    $status = 'partial';
+}
+
+
+// =====================================================
+// CREATE PURCHASE
+// =====================================================
+
+$purchase = Purchase::create([
+
+    'user_id' =>
+        $user->id,
+
+    'purchase_number' =>
+        $purchaseNumber,
+
+    'purchase_date' =>
+        now(),
+
+    'party_id' =>
+        $party->id,
+
+    'place_of_supply' =>
+        $data['place_of_supply'] ?? null,
+
+    'subtotal' =>
+        $subtotal,
+
+    'total_tax' =>
+        $totalTax,
+
+    'discount_percent' =>
+        $data['discount_percent'] ?? 0,
+
+    'discount_amount' =>
+        $discountAmount,
+
+    'round_off' =>
+        $roundOff,
+
+    'tcs_amount' =>
+        $tcsAmount,
+
+    'received_amount' =>
+        $receivedAmount,
+
+    'balance_amount' =>
+        $balanceAmount,
+
+    'grand_total' =>
+        $grandTotal,
+
+    'status' =>
+        $status,
+]);
+
+// =====================================================
+// SAVE ADDITIONAL CHARGE
+// =====================================================
+
+if ($additionalTotal > 0) {
+
+    PurchaseAdditionalCharge::create([
+
+        'purchase_id' =>
+            $purchase->id,
+
+        'name' =>
+            'Additional Charges',
+
+        'amount' =>
+            $additionalTotal,
+    ]);
+}
 
             foreach ($preparedItems as $line) {
                 PurchaseItem::create([
@@ -154,29 +441,107 @@ class AutoPurchaseController extends Controller
             }
 
             // ================= FINAL RESPONSE =================
+            // return response()->json([
+            //     'success' => true,
+            //     'data' => [
+            //         'purchase' => $purchase->load(['items', 'party']),
+            //         'id' => $purchase->id,
+            //         'purchase_number' => $purchase->purchase_number,
+            //         'purchase_date' => $purchase->purchase_date,
+            //         'place_of_supply' => $purchase->place_of_supply,
+            //         'subtotal' => $purchase->subtotal,
+            //         'total_tax' => $purchase->total_tax,
+            //         'grand_total' => $purchase->grand_total,
+            //         'status' => $purchase->status,
+
+            //         'party' => [
+            //             'id' => $party->id,
+            //             'party_name' => $party->party_name,
+            //             'is_new' => $isNewParty, // ✅ PARTY FLAG
+            //             'contact_number' => $party->contact_number ?? '', // ✅
+            //         ],
+
+            //         'items' => $preparedItems, // ✅ ITEMS WITH FLAG
+            //     ]
+            // ], 201);
             return response()->json([
-                'success' => true,
-                'data' => [
-                    'purchase' => $purchase->load(['items', 'party']),
-                    'id' => $purchase->id,
-                    'purchase_number' => $purchase->purchase_number,
-                    'purchase_date' => $purchase->purchase_date,
-                    'place_of_supply' => $purchase->place_of_supply,
-                    'subtotal' => $purchase->subtotal,
-                    'total_tax' => $purchase->total_tax,
-                    'grand_total' => $purchase->grand_total,
-                    'status' => $purchase->status,
 
-                    'party' => [
-                        'id' => $party->id,
-                        'party_name' => $party->party_name,
-                        'is_new' => $isNewParty, // ✅ PARTY FLAG
-                        'contact_number' => $party->contact_number ?? '', // ✅
-                    ],
+    'success' => true,
 
-                    'items' => $preparedItems, // ✅ ITEMS WITH FLAG
-                ]
-            ], 201);
+    'data' => [
+
+        'purchase' =>
+            $purchase->load([
+                'items',
+                'party',
+                'additionalCharges',
+            ]),
+
+        'id' =>
+            $purchase->id,
+
+        'purchase_number' =>
+            $purchase->purchase_number,
+
+        'purchase_date' =>
+            $purchase->purchase_date,
+
+        'place_of_supply' =>
+            $purchase->place_of_supply,
+
+        'subtotal' =>
+            (float) $purchase->subtotal,
+
+        'total_tax' =>
+            (float) $purchase->total_tax,
+
+        'additional_charge_total' =>
+            (float) $additionalTotal,
+
+        'discount_amount' =>
+            (float) $purchase->discount_amount,
+
+        'round_off' =>
+            (float) $purchase->round_off,
+
+        'tcs_amount' =>
+            (float) $purchase->tcs_amount,
+
+        'grand_total' =>
+            (float) $purchase->grand_total,
+
+        'received_amount' =>
+            (float) $purchase->received_amount,
+
+        'balance_amount' =>
+            (float) $purchase->balance_amount,
+
+        'status' =>
+            $purchase->status,
+
+        'party' => [
+
+            'id' =>
+                $party->id,
+
+            'party_name' =>
+                $party->party_name,
+
+            'is_new' =>
+                $isNewParty,
+
+            'contact_number' =>
+                $party->contact_number ?? '',
+        ],
+
+        'items' =>
+            $preparedItems,
+
+        'additional_charges' =>
+            $purchase->additionalCharges,
+    ]
+
+], 201);
         });
     }
 }

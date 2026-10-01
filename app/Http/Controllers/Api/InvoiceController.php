@@ -27,8 +27,8 @@ class InvoiceController extends Controller
         $user = $request->user();
 
         $data = $request->validate([
-            // 'invoice_number' => 'required|string|max:50|unique:invoices,invoice_number',
-            'invoice_number' => 'nullable|string|max:50',
+            'invoice_number' => 'required|string|max:50|unique:invoices,invoice_number',
+            // 'invoice_number' => 'nullable|string|max:50',
             'invoice_date'   => 'required|date',
             'due_date'       => 'nullable|date',
             'party_id'       => 'required|exists:parties,id',
@@ -70,20 +70,20 @@ class InvoiceController extends Controller
 
         return DB::transaction(function () use ($user, $data) {
 
-        $lastInvoice = Invoice::where('user_id', $user->id)
-        ->latest('id')
-        ->first();
+    //     $lastInvoice = Invoice::where('user_id', $user->id)
+    //     ->latest('id')
+    //     ->first();
 
-        $nextNumber = 1;
+    //     $nextNumber = 1;
 
-       if (
-       $lastInvoice &&
-       preg_match('/INV-(\d+)/', $lastInvoice->invoice_number, $match)
-       ) {
-       $nextNumber = ((int) $match[1]) + 1;
-       }
+    //    if (
+    //    $lastInvoice &&
+    //    preg_match('/INV-(\d+)/', $lastInvoice->invoice_number, $match)
+    //    ) {
+    //    $nextNumber = ((int) $match[1]) + 1;
+    //    }
 
-       $invoiceNumber = 'INV-' . $nextNumber;
+    //    $invoiceNumber = 'INV-' . $nextNumber;
 
             $subtotal = 0;
             $totalTax = 0;
@@ -136,51 +136,163 @@ class InvoiceController extends Controller
 }
 
 
-            // 🔢 2. ADDITIONAL CHARGES
-            $additionalTotal = collect($data['additional_charges'] ?? [])
-                ->sum('amount');
+        //     // 🔢 2. ADDITIONAL CHARGES
+        //     $additionalTotal = collect($data['additional_charges'] ?? [])
+        //         ->sum('amount');
 
-            // 🔢 3. DISCOUNT
-            $discountPercent = $data['discount_percent'] ?? 0;
-            $discountAmount  = $data['discount_amount'] ?? 0;
+        //     // 🔢 3. DISCOUNT
+        //     $discountPercent = $data['discount_percent'] ?? 0;
+        //     $discountAmount  = $data['discount_amount'] ?? 0;
 
-            if ($discountPercent > 0) {
-                $discountAmount = ($subtotal * $discountPercent) / 100;
-            }
+        //     if ($discountPercent > 0) {
+        //         $discountAmount = ($subtotal * $discountPercent) / 100;
+        //     }
 
-            $roundOff = $data['round_off'] ?? 0;
-            $tcs      = $data['tcs_amount'] ?? 0;
+        //     $roundOff = $data['round_off'] ?? 0;
+        //     $tcs      = $data['tcs_amount'] ?? 0;
 
-            // 🔢 4. GRAND TOTAL
-            $grandTotal = $subtotal
-                + $totalTax
-                + $additionalTotal
-                - $discountAmount
-                + $roundOff
-                + $tcs;
+        //     // 🔢 4. GRAND TOTAL
+        //     $grandTotal = $subtotal
+        //         + $totalTax
+        //         + $additionalTotal
+        //         - $discountAmount
+        //         + $roundOff
+        //         + $tcs;
 
 
-                $receivedAmount = $data['received_amount'] ?? 0;
+        //         $receivedAmount = $data['received_amount'] ?? 0;
 
-            // ✅ MONEY NORMALIZATION (THIS IS CORRECT)
-            $grandTotal     = round($grandTotal, 2);
-            $receivedAmount = round($receivedAmount, 2);
+        //     // ✅ MONEY NORMALIZATION (THIS IS CORRECT)
+        //     $grandTotal     = round($grandTotal, 2);
+        //     $receivedAmount = round($receivedAmount, 2);
 
-            $balanceAmount = round($grandTotal - $receivedAmount, 2);
+        //     $balanceAmount = round($grandTotal - $receivedAmount, 2);
 
-          // 🔐 Force zero for floating-point issues
-           if (abs($balanceAmount) < 0.01) {
-           $balanceAmount = 0;
-           }
+        //   // 🔐 Force zero for floating-point issues
+        //    if (abs($balanceAmount) < 0.01) {
+        //    $balanceAmount = 0;
+        //    }
 
-            // ✅ FINAL STATUS LOGIC (ONLY ONE ALLOWED)
-            if ($balanceAmount <= 0) {
-            $status = 'paid';
-            } elseif ($receivedAmount <= 0) {
-            $status = 'unpaid';
-            } else {
-            $status = 'partial';
-            }
+        //     // ✅ FINAL STATUS LOGIC (ONLY ONE ALLOWED)
+        //     if ($balanceAmount <= 0) {
+        //     $status = 'paid';
+        //     } elseif ($receivedAmount <= 0) {
+        //     $status = 'unpaid';
+        //     } else {
+        //     $status = 'partial';
+        //     }
+
+        //need to add
+        // =====================================================
+// 2. ADDITIONAL CHARGES
+// =====================================================
+
+$additionalTotal = collect($data['additional_charges'] ?? [])
+    ->sum(function ($charge) {
+        return (float) ($charge['amount'] ?? 0);
+    });
+
+$additionalTotal = round($additionalTotal, 2);
+
+
+// =====================================================
+// 3. DISCOUNT
+// =====================================================
+
+$discountPercent = (float) ($data['discount_percent'] ?? 0);
+
+// Amount on which discount is calculated
+// Subtotal + Tax + Additional Charges
+$discountBase = $subtotal
+    + $totalTax
+    + $additionalTotal;
+
+$discountAmount = 0;
+
+if ($discountPercent > 0) {
+    $discountAmount = ($discountBase * $discountPercent) / 100;
+} else {
+    // If percentage is not used, use manually supplied amount
+    $discountAmount = (float) ($data['discount_amount'] ?? 0);
+}
+
+$discountAmount = round($discountAmount, 2);
+
+
+// =====================================================
+// 4. ROUND OFF & TCS
+// =====================================================
+
+$roundOff = round(
+    (float) ($data['round_off'] ?? 0),
+    2
+);
+
+$tcs = round(
+    (float) ($data['tcs_amount'] ?? 0),
+    2
+);
+
+
+// =====================================================
+// 5. GRAND TOTAL
+// =====================================================
+
+$grandTotal =
+      $subtotal
+    + $totalTax
+    + $additionalTotal
+    - $discountAmount
+    + $roundOff
+    + $tcs;
+
+$grandTotal = round($grandTotal, 2);
+
+
+// =====================================================
+// 6. RECEIVED AMOUNT
+// =====================================================
+
+$receivedAmount = round(
+    (float) ($data['received_amount'] ?? 0),
+    2
+);
+
+
+// =====================================================
+// 7. BALANCE AMOUNT
+// =====================================================
+
+// Grand Total - Received Amount
+$balanceAmount = round(
+    $grandTotal - $receivedAmount,
+    2
+);
+
+// Never show negative balance.
+// If customer has paid equal to or more than Grand Total,
+// balance is zero.
+// if ($balanceAmount <= 0) {
+//     $balanceAmount = 0.00;
+// }
+
+
+// =====================================================
+// 8. STATUS
+// =====================================================
+
+if ($balanceAmount <= 0) {
+
+    $status = 'paid';
+
+} elseif ($receivedAmount <= 0) {
+
+    $status = 'unpaid';
+
+} else {
+
+    $status = 'partial';
+}
 
 
            // 🔐 FETCH PARTY OPENING BALANCE (SNAPSHOT)
@@ -191,8 +303,8 @@ class InvoiceController extends Controller
             // 🧾 6. CREATE INVOICE
             $invoice = Invoice::create([
                 'user_id'          => $user->id,
-                // 'invoice_number'   => $data['invoice_number'],
-                'invoice_number'   => $invoiceNumber,
+                'invoice_number'   => $data['invoice_number'],
+                // 'invoice_number'   => $invoiceNumber,
                 'invoice_date'     => $data['invoice_date'],
                 'due_date'         => $data['due_date'] ?? null,
                 'party_id'         => $data['party_id'],
@@ -242,38 +354,82 @@ class InvoiceController extends Controller
         // ===============================
 // 🔗 CREATE PAYMENT LINK + SEND SMS
 // // ===============================
+// $paymentLink = null;
+
+// if ($invoice->balance_amount > 0 && $party->contact_number) {
+
+//     // Create Razorpay payment link
+//     $paymentLink = PaymentLinkService::create($invoice, $party);
+    
+
+//     //need to add server
+//     // ✅ ADD THIS LINE (VERY IMPORTANT)
+//     $invoice->update([
+//         'payment_link' => $paymentLink
+//     ]);
+
+//       // ✅ ADD THIS LOG RIGHT HERE 👇
+//     \Log::info('SMS_TRIGGER', [
+//         'mobile'  => $party->contact_number,
+//         'amount'  => $invoice->balance_amount,
+//         'invoice' => $invoice->invoice_number,
+//         'link'    => $paymentLink,
+//     ]);
+
+
+//     // Send SMS using DLT template variables
+//     SmsService::sendPaymentLink(
+//         $party->contact_number,
+//         [
+//             $invoice->balance_amount,   // {#var#} → Amount
+//             $invoice->invoice_number,   // {#var#} → Order / Invoice No
+//             $paymentLink                // {#var#} → Payment link
+//         ]
+//     );
+// }
+
+
 $paymentLink = null;
 
 if ($invoice->balance_amount > 0 && $party->contact_number) {
 
-    // Create Razorpay payment link
-    $paymentLink = PaymentLinkService::create($invoice, $party);
-    
+    try {
 
-    //need to add server
-    // ✅ ADD THIS LINE (VERY IMPORTANT)
-    $invoice->update([
-        'payment_link' => $paymentLink
-    ]);
+        // ✅ Create Razorpay payment link
+        $paymentLink = PaymentLinkService::create($invoice, $party);
 
-      // ✅ ADD THIS LOG RIGHT HERE 👇
-    \Log::info('SMS_TRIGGER', [
-        'mobile'  => $party->contact_number,
-        'amount'  => $invoice->balance_amount,
-        'invoice' => $invoice->invoice_number,
-        'link'    => $paymentLink,
-    ]);
+        // ✅ Save payment link
+        $invoice->update([
+            'payment_link' => $paymentLink
+        ]);
 
+        // ✅ Log
+        \Log::info('SMS_TRIGGER', [
+            'mobile'  => $party->contact_number,
+            'amount'  => $invoice->balance_amount,
+            'invoice' => $invoice->invoice_number,
+            'link'    => $paymentLink,
+        ]);
 
-    // Send SMS using DLT template variables
-    SmsService::sendPaymentLink(
-        $party->contact_number,
-        [
-            $invoice->balance_amount,   // {#var#} → Amount
-            $invoice->invoice_number,   // {#var#} → Order / Invoice No
-            $paymentLink                // {#var#} → Payment link
-        ]
-    );
+        // ✅ Send SMS
+        SmsService::sendPaymentLink(
+            $party->contact_number,
+            [
+                $invoice->balance_amount,
+                $invoice->invoice_number,
+                $paymentLink
+            ]
+        );
+
+    } catch (\Exception $e) {
+
+        // ✅ Prevent crash
+        \Log::error('RAZORPAY_ERROR', [
+            'message' => $e->getMessage(),
+        ]);
+
+        $paymentLink = null;
+    }
 }
 
 
@@ -332,6 +488,8 @@ if ($invoice->balance_amount > 0 && $party->contact_number) {
     'success' => true,
     'message' => 'Invoice created successfully',
     'data'    => [
+        //need to add
+        'id' => $invoice->id,
         'invoice_number' => $invoice->invoice_number,
         'invoice_date'   => $invoice->invoice_date,
         'due_date'       => $invoice->due_date,
@@ -387,41 +545,45 @@ if ($invoice->balance_amount > 0 && $party->contact_number) {
                 ];
             }),
 
+            //need to add
+            'additional_charge_total' => (float)
+    $invoice->additionalCharges->sum('amount'),
+
         'additional_charges' => $invoice->additionalCharges,
     ],
 ], 201);
 });
     }
 
-    // public function lastNumber()
-    // {
-    //     $last = Invoice::select('invoice_number')
-    //         ->where('invoice_number', 'LIKE', 'INV-%')
-    //         ->orderByRaw("CAST(SUBSTRING(invoice_number, 5) AS UNSIGNED) DESC")
-    //         ->first();
+    public function lastNumber()
+    {
+        $last = Invoice::select('invoice_number')
+            ->where('invoice_number', 'LIKE', 'INV-%')
+            ->orderByRaw("CAST(SUBSTRING(invoice_number, 5) AS UNSIGNED) DESC")
+            ->first();
 
-    //     return response()->json([
-    //         'last_number' => $last
-    //             ? intval(str_replace('INV-', '', $last->invoice_number))
-    //             : 0
-    //     ]);
-    // }
+        return response()->json([
+            'last_number' => $last
+                ? intval(str_replace('INV-', '', $last->invoice_number))
+                : 0
+        ]);
+    }
 
-    public function lastNumber(Request $request)
-{
-    $user = $request->user();
+//     public function lastNumber(Request $request)
+// {
+//     $user = $request->user();
 
-    $last = Invoice::where('user_id', $user->id)
-        ->where('invoice_number', 'LIKE', 'INV-%')
-        ->orderByRaw("CAST(SUBSTRING(invoice_number, 5) AS UNSIGNED) DESC")
-        ->first();
+//     $last = Invoice::where('user_id', $user->id)
+//         ->where('invoice_number', 'LIKE', 'INV-%')
+//         ->orderByRaw("CAST(SUBSTRING(invoice_number, 5) AS UNSIGNED) DESC")
+//         ->first();
 
-    return response()->json([
-        'last_number' => $last
-            ? intval(str_replace('INV-', '', $last->invoice_number))
-            : 0
-    ]);
-}
+//     return response()->json([
+//         'last_number' => $last
+//             ? intval(str_replace('INV-', '', $last->invoice_number))
+//             : 0
+//     ]);
+// }
 
 public function salesSummary(Request $request)
 {
@@ -771,6 +933,123 @@ public function salesSummaryPdf(Request $request)
     ]);
 
     return $pdf->download('sales_report.pdf');
+}
+
+public function show($id)
+{
+    $invoice = Invoice::with([
+        'party',
+        'items.item',
+        'additionalCharges'
+    ])->findOrFail($id);
+
+    $business = BusinessDetail::where(
+        'user_id',
+        $invoice->user_id
+    )->first();
+
+    return response()->json([
+        'success' => true,
+        'data' => [
+
+            'invoice_number' => $invoice->invoice_number,
+            'invoice_date'   => $invoice->invoice_date,
+            'due_date'       => $invoice->due_date,
+
+            'subtotal'    => (float) $invoice->subtotal,
+            'total_tax'   => (float) $invoice->total_tax,
+            'grand_total' => (float) $invoice->grand_total,
+
+            'discount_amount' =>
+                (float) $invoice->discount_amount,
+
+            'round_off' =>
+                (float) $invoice->round_off,
+
+            'tcs_amount' =>
+                (float) $invoice->tcs_amount,
+
+            'received_amount' =>
+                (float) $invoice->received_amount,
+
+            'balance_amount' =>
+                (float) $invoice->balance_amount,
+
+            'status' => $invoice->status,
+
+            'payment_link' => $invoice->payment_link,
+
+            'party' => $invoice->party,
+
+            'business' => [
+                'industry' =>
+                    $business->industry ?? '',
+
+                'gstin' =>
+                    $business->gst_number ?? '',
+
+                'address' =>
+                    $business->address ?? '',
+
+                'city' =>
+                    $business->city ?? '',
+
+                'pan_cin' =>
+                    $business->pan_cin ?? '',
+
+                'trade_license_or_udyam' =>
+                    $business->trade_license_or_udyam ?? '',
+
+                'mobile' =>
+                    $business->mobile ?? '',
+                  //need to add//
+                 // ✅ VERY IMPORTANT
+                'invoice_format' =>
+                    $business->invoice_format ?? 'A4 Size - Template 1',    
+            ],
+
+            'items' => $invoice->items->map(function ($row) {
+                return [
+                    'item_id'     => $row->item_id,
+                    'description' => $row->item->name ?? '',
+                    'hsn'         => $row->item->hsn_code ?? '',
+                    'qty'         => $row->qty,
+                    'unit'        => $row->unit,
+                    'price'       => $row->price,
+                    'gst_percent' => $row->gst_percent,
+                    'gst_amount'  => $row->gst_amount,
+                    'line_total'  => $row->line_total,
+                ];
+            }),
+
+            'additional_charges' =>
+                $invoice->additionalCharges,
+        ]
+    ]);
+}
+
+
+//need to add
+// // =====================================================
+// INVOICE PREVIEW
+// =====================================================
+public function preview(Request $request, $id)
+{
+    $invoice = Invoice::with([
+        'party',
+        'items.item',
+        'additionalCharges'
+    ])->findOrFail($id);
+
+    $business = BusinessDetail::where(
+        'user_id',
+        $invoice->user_id
+    )->first();
+
+    return view('invoice.preview', [
+        'invoice'  => $invoice,
+        'business' => $business,
+    ]);
 }
 
 }

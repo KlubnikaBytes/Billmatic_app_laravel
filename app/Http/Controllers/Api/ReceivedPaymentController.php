@@ -76,6 +76,14 @@ class ReceivedPaymentController extends Controller
                 }
 
                 $invoice->save();
+
+                  // ✅ SAVE PAYMENT-INVOICE RELATION
+    $payment->invoices()->attach(
+        $invoice->id,
+        [
+            'amount' => $row['amount']
+        ]
+    );
             }
 
             // =====================================================
@@ -107,22 +115,100 @@ class ReceivedPaymentController extends Controller
         });
     }
 
-//     public function nextNumber()
+    //need to add
+    public function index(Request $request)
+{
+    $payments = ReceivedPayment::with([
+        'party',
+        'invoices'
+    ])
+    ->where('user_id', auth()->id())
+    ->orderByDesc('payment_date')
+    ->orderByDesc('id')
+    ->get();
+
+    return response()->json([
+        'success' => true,
+        'data' => $payments->map(function ($payment) {
+
+            $totalSettled = $payment->invoices->sum(function ($invoice) {
+                return (float) ($invoice->pivot->amount ?? 0);
+            });
+
+            return [
+                'id' => $payment->id,
+                'payment_number' => $payment->payment_number,
+                'payment_date' => $payment->payment_date,
+                'party_name' => $payment->party->party_name ?? '',
+                'total_amount_settled' => $totalSettled,
+                'amount_received' => (float) $payment->amount,
+                'payment_mode' => $payment->payment_mode,
+            ];
+        })->values(),
+    ]);
+}
+
+    public function nextNumber()
+{
+    return response()->json([
+        'next_number' => (ReceivedPayment::max('id') ?? 0) + 1
+    ]);
+}
+
+// public function nextNumber(Request $request)
 // {
+//     $user = $request->user();
+
+//     $nextNumber = ReceivedPayment::where('user_id', $user->id)
+//         ->max('payment_number');
+
 //     return response()->json([
-//         'next_number' => (ReceivedPayment::max('id') ?? 0) + 1
+//         'next_number' => ($nextNumber ?? 0) + 1
 //     ]);
 // }
 
-public function nextNumber(Request $request)
+public function show($id)
 {
-    $user = $request->user();
-
-    $nextNumber = ReceivedPayment::where('user_id', $user->id)
-        ->max('payment_number');
+    $payment = ReceivedPayment::with([
+        'party',
+        'invoices'
+    ])->findOrFail($id);
 
     return response()->json([
-        'next_number' => ($nextNumber ?? 0) + 1
+        'success' => true,
+
+        'data' => [
+
+            'id' => $payment->id,
+
+            'payment_number' => $payment->payment_number,
+
+            'payment_date' => $payment->payment_date,
+
+            'amount' => (float) $payment->amount,
+
+            'payment_mode' => $payment->payment_mode,
+
+            'party_name' => $payment->party->party_name ?? '',
+
+            // ✅ IMPORTANT FIX
+            'invoices' => $payment->invoices->map(function ($inv) {
+
+                return [
+
+                    'invoice_id' => $inv->id,
+
+                    'invoice_number' => $inv->invoice_number,
+
+                    'invoice_date' => $inv->invoice_date,
+
+                    'grand_total' => (float) $inv->grand_total,
+
+                    // ✅ FROM PIVOT TABLE
+                    'paid_amount' => (float) ($inv->pivot->amount ?? 0),
+                ];
+            })->values(),
+        ],
     ]);
 }
 

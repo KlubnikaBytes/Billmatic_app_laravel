@@ -24,9 +24,9 @@ class ItemController extends Controller
         ->firstOrFail();
 
     $currentStock = $item->opening_stock;
-$purchasePrice = $item->purchase_price ?? 0;
+    $purchasePrice = $item->purchase_price ?? 0;
 
-$item->stock_value = round($currentStock * $purchasePrice, 2);
+    $item->stock_value = round($currentStock * $purchasePrice, 2);
 
 return response()->json([
     'success' => true,
@@ -102,6 +102,10 @@ return response()->json([
 
         $data['user_id'] = $user->id;
 
+        //need to add
+        // GST is 0 when no GST is selected
+        $data['gst_percent'] = $data['gst_percent'] ?? 0;
+
         // 📸 Image upload
     if ($request->hasFile('image')) {
         $path = $request->file('image')->store('items', 'public');
@@ -110,6 +114,8 @@ return response()->json([
 
     // ✅ Checkbox safe handling
     $data['show_in_online_store'] = $request->boolean('show_in_online_store');
+
+    //
 
     
     // ✅ CALCULATE STOCK VALUE
@@ -218,6 +224,10 @@ public function update(Request $request, $id)
     }
 
     $data['show_in_online_store'] = $request->boolean('show_in_online_store');
+
+    //need to add
+    // GST is 0 when no GST is selected
+    $data['gst_percent'] = $data['gst_percent'] ?? 0;
 
     // ✅ RECALCULATE STOCK VALUE
     $data['stock_value'] = $this->calculateStockValue(

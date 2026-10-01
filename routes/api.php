@@ -12,8 +12,6 @@ use App\Http\Controllers\Api\AutoPurchaseController;
 
 
 
-
-
 Route::post('/send-otp', [AuthController::class, 'sendOtp']);
 Route::post('/verify-otp', [AuthController::class, 'verifyOtp']);
 
@@ -24,9 +22,11 @@ Route::middleware('auth:api')->group(function () {
     // =======================
     Route::post('/business-details', [AuthController::class, 'updateBusinessDetails']);
     Route::get('/business-info', [AuthController::class, 'businessInfo']);
+    Route::post('/verify-gstin', [AuthController::class, 'verifyGSTIN']);
 
     Route::post('/logout', [AuthController::class, 'logout']);   // ✅
     Route::post('/refresh', [AuthController::class, 'refresh']); // ✅ NEW
+
 
     Route::get('/me', function () {
         return auth()->user();
@@ -58,6 +58,12 @@ Route::middleware('auth:api')->group(function () {
      Route::get('/dashboard/totals', [PartyController::class, 'dashboardTotals']);
 
      Route::get('/dashboard/transactions', [PartyController::class, 'allTransactions']);
+
+     //need to add//
+     
+    Route::get('/party-categories', [PartyController::class,'categories']);
+
+    Route::post('/party-categories', [PartyController::class,'storeCategory']);
 
 
 
@@ -96,13 +102,21 @@ Route::middleware('auth:api')->group(function () {
 
     Route::get('/cash-bank-details', [InvoiceController::class, 'cashBankDetails']);
 
+    Route::get('/invoices/{id}', [InvoiceController::class, 'show']);
+
 
 
 
     // ✅ RECEIVED PAYMENT
+
+    // need to add
+    Route::get('/payments', [ReceivedPaymentController::class, 'index']);
+    
     Route::post('/payments', [ReceivedPaymentController::class, 'store']);
 
     Route::get('/payments/next-number', [ReceivedPaymentController::class, 'nextNumber']);
+
+    Route::get('/payments/{id}', [ReceivedPaymentController::class, 'show']);
 
 
     ///add to server
@@ -113,9 +127,13 @@ Route::middleware('auth:api')->group(function () {
 
     Route::post('/purchases', [PurchaseController::class, 'store']);
 
+    Route::get('/purchases', [PurchaseController::class, 'index']);
+
     Route::post('/scan-bill', [PurchaseController::class, 'scanBill']);
 
     Route::post('/auto-purchase', [AutoPurchaseController::class, 'storeAuto']);
+
+    Route::get('/purchases/{id}', [PurchaseController::class, 'show']);
 
    
 
@@ -124,7 +142,7 @@ Route::middleware('auth:api')->group(function () {
 
 ///add to server
 
-Route::get('/invoices/{id}', function ($id) {
+Route::get('/invoice-payment-link/{id}', function ($id) {
     $invoice = \App\Models\Invoice::findOrFail($id);
 
     return response()->json([

@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\Party;
+//need to add//
+use App\Models\PartyCategory;
 use App\Models\Invoice; // ✅ ADD THIS LINE
 use App\Models\ReceivedPayment;
 use App\Models\Purchase;
@@ -118,11 +120,32 @@ class PartyController extends Controller
         'credit_limit'       => 'nullable|numeric',
 
         'party_category_id'   => 'nullable|exists:party_categories,id',
+        //need to add//
+        'party_category_name' => 'nullable|string|max:255',
         'contact_person_name' => 'nullable|string|max:255',
         'dob'                 => 'nullable|date',
     ]);
 
     $data['user_id'] = $user->id;
+
+    //need to add//
+    // ========================================
+// PARTY CATEGORY
+// ========================================
+if (!empty($data['party_category_name'])) {
+
+    $category = PartyCategory::firstOrCreate(
+        [
+            'user_id' => $user->id,
+            'name'    => trim($data['party_category_name']),
+        ]
+    );
+
+    $data['party_category_id'] = $category->id;
+}
+
+// Do not send this temporary field to Party model
+unset($data['party_category_name']);
 
     $party = Party::create($data);
 
@@ -329,6 +352,8 @@ public function allTransactions(Request $request)
         ->map(function ($pay) {
             return [
                 'type'       => 'payment',
+                // ✅ VERY IMPORTANT
+                'payment_id' => $pay->id,
                 'party_name' => $pay->party->party_name ?? 'Unknown Party',
                 // 'number'     => $pay->payment_number,
                 // 'number'     => $pay->id,
@@ -353,6 +378,8 @@ $purchases = $purchaseQuery
     ->map(function ($p) {
         return [
             'type'           => 'purchase', // ✅ IMPORTANT
+            // ✅ IMPORTANT
+            'purchase_id' => $p->id,
             'party_name'     => $p->party->party_name ?? 'Unknown Party',
             'number'         => $p->purchase_number,
             'date'           => $p->purchase_date,
@@ -527,5 +554,54 @@ public function dashboardTotals(Request $request)
             'this_week_sales' => (float) $thisWeekSales,
         ],
     ]);
+}
+
+//need to add//
+
+
+// GET /api/party-categories
+// ========================================
+// PARTY CATEGORIES
+// ========================================
+
+public function categories(Request $request)
+{
+    $userId = $request->user()->id;
+
+    $categories = PartyCategory::where('user_id', $userId)
+        ->withCount('parties')
+        ->orderBy('name')
+        ->get(['id', 'name']);
+
+    return response()->json([
+        'success' => true,
+        'data' => $categories->map(function ($category) {
+            return [
+                'id' => $category->id,
+                'name' => $category->name,
+                'party_count' => $category->parties_count,
+            ];
+        }),
+    ]);
+}
+// POST /api/party-categories
+public function storeCategory(Request $request)
+{
+    $data = $request->validate([
+        'name' => 'required|string|max:255',
+    ]);
+
+    $name = trim($data['name']);
+
+    $category = PartyCategory::firstOrCreate([
+        'user_id' => $request->user()->id,
+        'name' => $name,
+    ]);
+
+    return response()->json([
+        'success' => true,
+        'message' => 'Category saved successfully',
+        'data' => $category,
+    ], $category->wasRecentlyCreated ? 201 : 200);
 }
 }

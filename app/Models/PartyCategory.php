@@ -14,4 +14,10 @@ class PartyCategory extends Model
     {
         return $this->belongsTo(User::class);
     }
+
+    //need to add//
+    public function parties()
+    {
+        return $this->hasMany(Party::class, 'party_category_id');
+    }
 }

@@ -11,6 +11,7 @@ use App\Models\BusinessDetail;
 use Illuminate\Support\Facades\Auth;
 
 
+
 class AuthController extends Controller
 {
     public function sendOtp(Request $request)
@@ -165,22 +166,80 @@ class AuthController extends Controller
 
 
 
-    public function updateBusinessDetails(Request $request)
+//     public function updateBusinessDetails(Request $request)
+// {
+//     $request->validate([
+//         'city' => 'required',
+//         'billing_requirement' => 'required',
+//         'language' => 'required',
+//         'business_type' => 'required|array',
+//         'industry' => 'required',
+//         'gst_registered' => 'required|boolean',
+//         'gst_number' => 'nullable|string',
+//         'invoice_format' => 'nullable|string'
+//     ]);
+
+//     $details = BusinessDetail::updateOrCreate(
+//         ['user_id' => auth()->id()],
+//         $request->all()
+//     );
+
+//     return response()->json([
+//         'success' => true,
+//         'message' => 'Business details saved successfully',
+//         'data' => $details
+//     ]);
+// }
+
+public function updateBusinessDetails(Request $request)
 {
     $request->validate([
         'city' => 'required',
         'billing_requirement' => 'required',
         'language' => 'required',
+
         'business_type' => 'required|array',
         'industry' => 'required',
+
         'gst_registered' => 'required|boolean',
-        'gst_number' => 'nullable|string',
-        'invoice_format' => 'nullable|string'
+
+        'gst_number' => 'nullable|string|max:15',
+
+        'business_name' => 'nullable|string|max:255',
+        'business_address' => 'nullable|string',
+        'gst_status' => 'nullable|string|max:50',
+        'gst_legal_name' => 'nullable|string|max:255',
+
+        'pan_cin' => 'nullable|string',
+        'trade_license_or_udyam' => 'nullable|string',
+
+        'invoice_format' => 'nullable|string',
     ]);
 
     $details = BusinessDetail::updateOrCreate(
-        ['user_id' => auth()->id()],
-        $request->all()
+        [
+            'user_id' => auth()->id()
+        ],
+        $request->only([
+            'city',
+            'billing_requirement',
+            'language',
+            'business_type',
+            'industry',
+
+            'gst_registered',
+            'gst_number',
+
+            'business_name',
+            'business_address',
+            'gst_status',
+            'gst_legal_name',
+
+            'pan_cin',
+            'trade_license_or_udyam',
+
+            'invoice_format',
+        ])
     );
 
     return response()->json([
@@ -190,14 +249,39 @@ class AuthController extends Controller
     ]);
 }
 
+
+//need to add
+// public function businessInfo(Request $request)
+// {
+//     $business = BusinessDetail::where('user_id', $request->user()->id)->first();
+
+//     return response()->json([
+//         'success' => true,
+//         'data' => [
+//             'business_name' => $business->business_name ?? 'My Business',
+//             'mobile' => $user->mobile ?? '',
+//         ]
+//     ]);
+// }
+
+
+// need to add
 public function businessInfo(Request $request)
 {
-    $business = BusinessDetail::where('user_id', $request->user()->id)->first();
+    $user = $request->user();
+
+    $business = BusinessDetail::where(
+        'user_id',
+        $user->id
+    )->first();
 
     return response()->json([
         'success' => true,
         'data' => [
-            'business_name' => $business->industry ?? 'My Business',
+            'business_name' => $business->business_name ?? 'Business Name',
+            'mobile' => $user->mobile ?? '',
+            //need to add //
+             'language' => $business->language ?? 'English',
         ]
     ]);
 }
@@ -232,6 +316,112 @@ public function logout(Request $request)
         return response()->json([
             'success' => false,
             'message' => 'Failed to logout'
+        ], 500);
+    }
+}
+
+
+public function verifyGSTIN(Request $request)
+{
+    $request->validate([
+        'gstin' => [
+            'required',
+            'string',
+            'size:15',
+            'regex:/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/'
+        ],
+    ]);
+
+    $gstin = strtoupper(trim($request->gstin));
+
+    try {
+
+        $url = rtrim(
+            env('GSTIN_API_URL'),
+            '/'
+        ) . '/' . $gstin;
+
+        $response = Http::withHeaders([
+            'x-api-key' => env('GSTIN_API_KEY'),
+            'Accept' => 'application/json',
+        ])
+        ->timeout(15)
+        ->get($url);
+
+        if (!$response->successful()) {
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Unable to verify GSTIN right now.',
+            ], 422);
+        }
+
+        $result = $response->json();
+
+        if (
+            !isset($result['success']) ||
+            $result['success'] !== true
+        ) {
+
+            return response()->json([
+                'success' => false,
+                'message' =>
+                    $result['message'] ??
+                    'GSTIN could not be verified.',
+            ], 422);
+        }
+
+        $data = $result['data'] ?? $result;
+
+        $tradeName =
+            $data['trade_name'] ??
+            null;
+
+        $legalName =
+            $data['legal_name'] ??
+            null;
+
+        $address =
+            $data['address'] ??
+            null;
+
+        $status =
+            $data['status'] ??
+            null;
+
+        return response()->json([
+            'success' => true,
+
+            'data' => [
+                'gstin' =>
+                    $data['gstin'] ??
+                    $gstin,
+
+                'business_name' =>
+                    $tradeName ??
+                    $legalName ??
+                    '',
+
+                'legal_name' =>
+                    $legalName ??
+                    '',
+
+                'business_address' =>
+                    $address ??
+                    '',
+
+                'gst_status' =>
+                    $status ??
+                    '',
+            ],
+        ]);
+
+    } catch (\Throwable $e) {
+
+        return response()->json([
+            'success' => false,
+            'message' => 'GST verification failed.',
+            'error' => $e->getMessage(),
         ], 500);
     }
 }

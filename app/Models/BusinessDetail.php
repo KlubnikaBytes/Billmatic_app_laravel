@@ -20,6 +20,10 @@ class BusinessDetail extends Model
         'gst_number',
         'pan_cin',       // 🔥 ADD HERE
         'trade_license_or_udyam',  // 🔥 ADD THIS
+        'business_name',
+        'business_address',
+        'gst_status',
+        'gst_legal_name',
 
         'invoice_format',
     ];
