@@ -44,7 +44,12 @@ return [
         'api' => [
         'driver' => 'jwt',
         'provider' => 'users',
-    ]
+        ],
+
+        'managed-api' => [
+        'driver' => 'jwt',
+        'provider' => 'managed_users',
+        ],
     ],
 
     /*
@@ -74,6 +79,11 @@ return [
         //     'driver' => 'database',
         //     'table' => 'users',
         // ],
+
+        'managed_users' => [
+        'driver' => 'eloquent',
+        'model' => App\Models\ManagedUser::class,
+        ],
     ],
 
     /*

@@ -604,4 +604,255 @@ public function storeCategory(Request $request)
         'data' => $category,
     ], $category->wasRecentlyCreated ? 201 : 200);
 }
+
+
+/**
+ * List parties belonging to the managed user's business owner.
+ */
+public function managedIndex(Request $request)
+{
+    $managedUser = $request->user('managed-api');
+
+    abort_unless($managedUser, 401, 'Unauthenticated.');
+
+    $query = Party::where('user_id', $managedUser->owner_user_id);
+    $search = $request->query('search');
+
+    if ($search) {
+        $query->where(function ($q) use ($search) {
+            $q->where('party_name', 'LIKE', "%{$search}%")
+              ->orWhere('contact_number', 'LIKE', "%{$search}%")
+              ->orWhere('gst_number', 'LIKE', "%{$search}%")
+              ->orWhere('pan_number', 'LIKE', "%{$search}%")
+              ->orWhere('contact_person_name', 'LIKE', "%{$search}%")
+              ->orWhere('dob', 'LIKE', "%{$search}%");
+        });
+    }
+
+    return response()->json([
+        'success' => true,
+        'data' => $query->orderBy('party_name')->get(),
+    ]);
+}
+
+/**
+ * Create a party under the business owner's account.
+ */
+public function managedStore(Request $request)
+{
+    $managedUser = $request->user('managed-api');
+
+    abort_unless($managedUser, 401, 'Unauthenticated.');
+
+    // Initially allow only Partner and Salesman to create parties.
+    abort_unless(
+        in_array($managedUser->role, ['Partner', 'Salesman'], true),
+        403,
+        'Your role cannot create parties.'
+    );
+
+    $ownerId = $managedUser->owner_user_id;
+
+    $request->merge([
+        'gst_number' => $request->gst_number
+            ? strtoupper($request->gst_number) : null,
+        'pan_number' => $request->pan_number
+            ? strtoupper($request->pan_number) : null,
+    ]);
+
+    $data = $request->validate([
+        'party_name' => 'required|string|max:255',
+        'contact_number' => 'nullable|string|max:20',
+        'party_type' => 'required|in:customer,supplier',
+        'gst_number' => [
+            'nullable',
+            'regex:/^[0-3][0-9][A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/',
+        ],
+        'pan_number' => [
+            'nullable',
+            'regex:/^[A-Z]{5}[0-9]{4}[A-Z]$/',
+        ],
+        'billing_street' => 'nullable|string|max:255',
+        'billing_state' => 'nullable|string|max:100',
+        'billing_pincode' => 'nullable|string|max:10',
+        'billing_city' => 'nullable|string|max:100',
+        'opening_balance' => 'nullable|numeric',
+        'opening_balance_type' => 'required|in:receive,pay',
+        'credit_period_days' => 'nullable|integer',
+        'credit_limit' => 'nullable|numeric',
+        'party_category_id' => [
+            'nullable',
+            \Illuminate\Validation\Rule::exists('party_categories', 'id')
+                ->where('user_id', $ownerId),
+        ],
+        'party_category_name' => 'nullable|string|max:255',
+        'contact_person_name' => 'nullable|string|max:255',
+        'dob' => 'nullable|date',
+    ]);
+
+    if (!empty($data['party_category_name'])) {
+        $category = PartyCategory::firstOrCreate([
+            'user_id' => $ownerId,
+            'name' => trim($data['party_category_name']),
+        ]);
+
+        $data['party_category_id'] = $category->id;
+    }
+
+    unset($data['party_category_name']);
+
+    // Critical: parties belong to the owner, not the managed user's ID.
+    $data['user_id'] = $ownerId;
+
+    $party = Party::create($data);
+
+    return response()->json([
+        'success' => true,
+        'message' => 'Party created successfully.',
+        'data' => $party,
+    ], 201);
+}
+
+/**
+ * Show one party only if it belongs to the owner's account.
+ */
+public function managedShow(Request $request, $id)
+{
+    $managedUser = $request->user('managed-api');
+
+    abort_unless($managedUser, 401, 'Unauthenticated.');
+
+    $party = Party::where('user_id', $managedUser->owner_user_id)
+        ->findOrFail($id);
+
+    return response()->json([
+        'success' => true,
+        'data' => $party,
+    ]);
+}
+
+/**
+ * Update a party belonging to the owner's account.
+ */
+public function managedUpdate(Request $request, $id)
+{
+    $managedUser = $request->user('managed-api');
+
+    abort_unless($managedUser, 401, 'Unauthenticated.');
+
+    abort_unless(
+        in_array($managedUser->role, ['Partner', 'Salesman'], true),
+        403,
+        'Your role cannot update parties.'
+    );
+
+    $ownerId = $managedUser->owner_user_id;
+
+    $party = Party::where('user_id', $ownerId)->findOrFail($id);
+
+    $request->merge([
+        'gst_number' => $request->gst_number
+            ? strtoupper($request->gst_number) : null,
+        'pan_number' => $request->pan_number
+            ? strtoupper($request->pan_number) : null,
+    ]);
+
+    $data = $request->validate([
+        'party_name' => 'required|string|max:255',
+        'contact_number' => 'nullable|string|max:20',
+        'party_type' => 'required|in:customer,supplier',
+        'gst_number' => [
+            'nullable',
+            'regex:/^[0-3][0-9][A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/',
+        ],
+        'pan_number' => [
+            'nullable',
+            'regex:/^[A-Z]{5}[0-9]{4}[A-Z]$/',
+        ],
+        'billing_street' => 'nullable|string|max:255',
+        'billing_state' => 'nullable|string|max:100',
+        'billing_pincode' => 'nullable|string|max:10',
+        'billing_city' => 'nullable|string|max:100',
+        'opening_balance' => 'nullable|numeric',
+        'opening_balance_type' => 'required|in:receive,pay',
+        'credit_period_days' => 'nullable|integer',
+        'credit_limit' => 'nullable|numeric',
+        'party_category_id' => [
+            'nullable',
+            \Illuminate\Validation\Rule::exists('party_categories', 'id')
+                ->where('user_id', $ownerId),
+        ],
+        'contact_person_name' => 'nullable|string|max:255',
+        'dob' => 'nullable|date',
+    ]);
+
+    $party->update($data);
+
+    return response()->json([
+        'success' => true,
+        'message' => 'Party updated successfully.',
+        'data' => $party,
+    ]);
+}
+
+/**
+ * List categories belonging to the business owner.
+ */
+public function managedCategories(Request $request)
+{
+    $managedUser = $request->user('managed-api');
+
+    abort_unless($managedUser, 401, 'Unauthenticated.');
+
+    $categories = PartyCategory::where(
+        'user_id',
+        $managedUser->owner_user_id
+    )
+        ->withCount('parties')
+        ->orderBy('name')
+        ->get(['id', 'name']);
+
+    return response()->json([
+        'success' => true,
+        'data' => $categories->map(function ($category) {
+            return [
+                'id' => $category->id,
+                'name' => $category->name,
+                'party_count' => $category->parties_count,
+            ];
+        }),
+    ]);
+}
+
+/**
+ * Create a category for the business owner's account.
+ */
+public function managedStoreCategory(Request $request)
+{
+    $managedUser = $request->user('managed-api');
+
+    abort_unless($managedUser, 401, 'Unauthenticated.');
+
+    abort_unless(
+        in_array($managedUser->role, ['Partner', 'Salesman'], true),
+        403,
+        'Your role cannot create party categories.'
+    );
+
+    $data = $request->validate([
+        'name' => 'required|string|max:255',
+    ]);
+
+    $category = PartyCategory::firstOrCreate([
+        'user_id' => $managedUser->owner_user_id,
+        'name' => trim($data['name']),
+    ]);
+
+    return response()->json([
+        'success' => true,
+        'message' => 'Category saved successfully.',
+        'data' => $category,
+    ], $category->wasRecentlyCreated ? 201 : 200);
+}
+
 }

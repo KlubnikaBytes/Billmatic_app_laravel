@@ -9,11 +9,53 @@ use App\Http\Controllers\Api\ReceivedPaymentController;
 
 use App\Http\Controllers\Api\PurchaseController;
 use App\Http\Controllers\Api\AutoPurchaseController;
+use App\Http\Controllers\Api\ManagedUserController;
+use App\Http\Controllers\Api\ReportEmailController;
+
+use App\Http\Middleware\EnsureManagedUserToken;
 
 
 
 Route::post('/send-otp', [AuthController::class, 'sendOtp']);
 Route::post('/verify-otp', [AuthController::class, 'verifyOtp']);
+
+//need to add //
+Route::post('/managed/send-otp',[AuthController::class, 'sendManagedOtp']);
+
+Route::post('/managed/verify-otp',[AuthController::class, 'verifyManagedOtp']);
+
+Route::middleware([
+    'auth:managed-api',
+    \App\Http\Middleware\EnsureManagedUserToken::class,
+])->get('/managed/me', function (\Illuminate\Http\Request $request) {
+    return response()->json([
+        'success' => true,
+        'user' => $request->user(),
+    ]);
+});
+
+Route::middleware([
+    'auth:managed-api',
+    EnsureManagedUserToken::class,
+])->prefix('managed')->group(function () {
+    Route::get('/parties', [PartyController::class, 'managedIndex']);
+    Route::post('/parties', [PartyController::class, 'managedStore']);
+    Route::get('/parties/{id}', [PartyController::class, 'managedShow']);
+    Route::put('/parties/{id}', [PartyController::class, 'managedUpdate']);
+
+    Route::get('/party-categories', [PartyController::class, 'managedCategories']);
+    Route::post('/party-categories', [PartyController::class, 'managedStoreCategory']);
+});
+
+Route::middleware([
+    'auth:managed-api',
+    EnsureManagedUserToken::class,
+])->group(function () {
+    Route::post('/managed/invoices', [
+        InvoiceController::class,
+        'managedStore'
+    ]);
+});
 
 Route::middleware('auth:api')->group(function () {
 
@@ -26,6 +68,64 @@ Route::middleware('auth:api')->group(function () {
 
     Route::post('/logout', [AuthController::class, 'logout']);   // ✅
     Route::post('/refresh', [AuthController::class, 'refresh']); // ✅ NEW
+
+    //need to add//
+
+    Route::post('/business-industry',[AuthController::class, 'updateIndustry']);
+    Route::get('/business-details',[AuthController::class, 'businessDetails']);
+    
+    Route::post('/business-type',[AuthController::class, 'updateBusinessType']);
+    
+    Route::post('/business-tax-identifiers',[AuthController::class, 'updateBusinessTaxIdentifiers']);
+    Route::post('/business-address',[AuthController::class, 'updateBusinessAddress']);
+
+    Route::post('/business-email',[AuthController::class, 'updateBusinessEmail']);
+    Route::post('/business-custom-fields',[AuthController::class, 'updateBusinessCustomFields']);
+
+    
+    Route::get('/business-phone', [AuthController::class,'businessPhone',]);
+
+    Route::post('/business-phone', [AuthController::class,'updateBusinessPhone',]);
+    Route::post('/business-name',[AuthController::class, 'updateBusinessName']);
+    // Terms and Conditions
+    Route::get('/business-terms',[AuthController::class, 'businessTerms']);
+
+    Route::post('/business-terms',[AuthController::class, 'updateBusinessTerms']);
+
+// Signature Settings
+    Route::get('/business-signature',[AuthController::class, 'businessSignature']);
+    Route::post('/business-signature',[AuthController::class, 'updateBusinessSignature']);
+
+    // Discount Type Settings
+    Route::get('/discount-type',[AuthController::class, 'discountType']);
+    Route::post('/discount-type',[AuthController::class, 'updateDiscountType']);
+
+    // Invoice Theme & Color
+    Route::get('/invoice-theme', [AuthController::class, 'invoiceTheme']);
+    Route::post('/invoice-theme', [AuthController::class, 'updateInvoiceTheme']);
+
+    // Invoice Number Prefix
+    Route::get('/invoice-number-prefix',[AuthController::class, 'invoiceNumberPrefix']);
+    Route::post('/invoice-number-prefix',[AuthController::class, 'updateInvoiceNumberPrefix']);
+
+    Route::get('/bill-wise-profit', [InvoiceController::class, 'billWiseProfit']);
+    Route::get('/profit-loss',[InvoiceController::class, 'profitLoss']);
+
+    Route::get('/balance-sheet',[InvoiceController::class, 'balanceSheet']);
+    Route::get('/daybook', [InvoiceController::class, 'daybook']);
+
+    // Email generated reports to the registered CA
+   Route::post('/reports/email-to-ca',[ReportEmailController::class, 'emailReportToCA']);
+
+    // =======================
+// Managed Users API
+// =======================
+    Route::get('/managed-users', [ManagedUserController::class,'index',]);
+
+    Route::post('/managed-users', [ManagedUserController::class,'store',]);
+
+
+
 
 
     Route::get('/me', function () {
