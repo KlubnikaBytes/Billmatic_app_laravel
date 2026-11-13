@@ -29,7 +29,7 @@ use Illuminate\Validation\Rule;
 
 class InvoiceController extends Controller
 {
-    
+
     public function store(Request $request)
     {
         $user = $request->user();
@@ -76,7 +76,7 @@ class InvoiceController extends Controller
             'items.*.gst_percent' => 'nullable|numeric|min:0',
         ]);
 
-    
+
 
 
         return DB::transaction(function () use ($user, $data) {
@@ -109,11 +109,34 @@ class InvoiceController extends Controller
         ->lockForUpdate()
         ->firstOrFail();
 
-    if ($item->opening_stock < $line['qty']) {
-        throw new \Exception("Insufficient stock for {$item->name}");
-    }
+        //need//
 
-    $openingStock = $item->opening_stock;
+    // if ($item->opening_stock < $line['qty']) {
+    //     throw new \Exception("Insufficient stock for {$item->name}");
+    // }
+
+    // $openingStock = $item->opening_stock;
+
+    //need//
+
+    // =====================================================
+// OPENING STOCK OPTIONAL FOR PRODUCT AND SERVICE
+// =====================================================
+
+$openingStock = (float) ($item->opening_stock ?? 0);
+
+if (strtolower(trim((string) $item->item_type)) === 'product') {
+
+    // No insufficient-stock validation.
+    // Allow invoices even when available stock is zero.
+
+    $item->opening_stock =
+        $openingStock - (float) $line['qty'];
+
+    $item->save();
+}
+
+// Service items do not affect stock.
 
     // 🔻 Deduct stock
     $item->opening_stock -= $line['qty'];
@@ -371,7 +394,7 @@ if ($balanceAmount <= 0) {
 
 //     // Create Razorpay payment link
 //     $paymentLink = PaymentLinkService::create($invoice, $party);
-    
+
 
 //     //need to add server
 //     // ✅ ADD THIS LINE (VERY IMPORTANT)
@@ -474,7 +497,7 @@ if (
 
 
 
-           
+
             // 🧾 7. SAVE ITEMS (SAFE)
     foreach ($preparedItems as $line) {
     $line['invoice_id'] = $invoice->id;
@@ -498,7 +521,7 @@ if (
             // ✅ GET BUSINESS DETAILS
             $business = BusinessDetail::where('user_id', $user->id)->first();
 
-        
+
           return response()->json([
     'success' => true,
     'message' => 'Invoice created successfully',
@@ -530,7 +553,7 @@ if (
             'gstin'   => $business->gst_number ?? '',
             'address' => $business->address ?? '',
             'industry' => $business->industry ?? '',
-    
+
             'city' => $business->city ?? '',
             'pan_cin' => $business->pan_cin ?? '',
             'trade_license_or_udyam' =>
@@ -551,7 +574,7 @@ if (
         ],
 
          // ✅ ADD THIS LINE
-        'payment_link' => $paymentLink,  
+        'payment_link' => $paymentLink,
 
         'items' => $invoice->items()
             ->with('item')
@@ -561,6 +584,7 @@ if (
                     'item_id'     => $row->item_id,
                     'description' => $row->item->name,
                     'hsn'         => $row->item->hsn_code ?? '',
+                    'item_type'   => $row->item->item_type ?? '',
                     'qty'         => $row->qty,
                     'unit'        => $row->unit,
                     'price'       => $row->price,
@@ -641,7 +665,7 @@ if (
             'items.*.gst_percent' => 'nullable|numeric|min:0',
         ]);
 
-    
+
 
 
         return DB::transaction(function () use ($owner, $ownerId, $data) {
@@ -935,7 +959,7 @@ if ($balanceAmount <= 0) {
 
 //     // Create Razorpay payment link
 //     $paymentLink = PaymentLinkService::create($invoice, $party);
-    
+
 
 //     //need to add server
 //     // ✅ ADD THIS LINE (VERY IMPORTANT)
@@ -1038,7 +1062,7 @@ if (
 
 
 
-           
+
             // 🧾 7. SAVE ITEMS (SAFE)
     foreach ($preparedItems as $line) {
     $line['invoice_id'] = $invoice->id;
@@ -1062,7 +1086,7 @@ if (
             // ✅ GET BUSINESS DETAILS
             $business = BusinessDetail::where('user_id', $ownerId)->first();
 
-        
+
           return response()->json([
     'success' => true,
     'message' => 'Invoice created successfully',
@@ -1094,7 +1118,7 @@ if (
             'gstin'   => $business->gst_number ?? '',
             'address' => $business->address ?? '',
             'industry' => $business->industry ?? '',
-    
+
             'city' => $business->city ?? '',
             'pan_cin' => $business->pan_cin ?? '',
             'trade_license_or_udyam' =>
@@ -1115,7 +1139,7 @@ if (
         ],
 
          // ✅ ADD THIS LINE
-        'payment_link' => $paymentLink,  
+        'payment_link' => $paymentLink,
 
         'items' => $invoice->items()
             ->with('item')
@@ -1125,6 +1149,7 @@ if (
                     'item_id'     => $row->item_id,
                     'description' => $row->item->name,
                     'hsn'         => $row->item->hsn_code ?? '',
+                    'item_type'   => $row->item->item_type ?? '',
                     'qty'         => $row->qty,
                     'unit'        => $row->unit,
                     'price'       => $row->price,
@@ -1695,9 +1720,81 @@ public function cashBankDetails(Request $request)
 //     ]);
 // }
 
+// public function gstReport(Request $request)
+// {
+//     $user = auth()->user();
+
+//     if (!$user) {
+//         return response()->json([
+//             'success' => false,
+//             'message' => 'Unauthorized',
+//         ], 401);
+//     }
+
+//     // ✅ GET RANGE (default last_month)
+//     $range = $request->get('range', 'last_month');
+
+//     // ✅ USE YOUR EXISTING FUNCTION
+//     [$start, $end] = $this->getDateRange($range, $request);
+
+//     // ✅ GET BUSINESS DETAILS
+//     $business = BusinessDetail::where('user_id', $user->id)->first();
+
+
+//     // ✅ FILTER BY DATE
+//     $invoices = Invoice::where('user_id', $user->id)
+//         ->whereBetween('invoice_date', [$start, $end])
+//         ->with('party')
+//         ->orderBy('invoice_date', 'desc')
+//         ->get();
+
+//     return response()->json([
+//         'success' => true,
+
+//         // ✅ ADD THIS
+//         'business' => [
+//             'name'   => $business->business_name ?? '',
+//             'mobile' => $business->mobile ?? '',
+//             'gst'    => $business->gst_number ?? '',
+//         ],
+
+//         // ✅ IMPORTANT (for Flutter UI)
+//         'start' => $start->toDateString(),
+//         'end'   => $end->toDateString(),
+
+//         'count' => $invoices->count(),
+
+//         'data' => $invoices->map(function ($inv) {
+//             return [
+//                 'invoice_no' => $inv->invoice_number,
+//                 'date' => $inv->invoice_date,
+//                 'party_name' => $inv->party->party_name ?? '',
+//                 'place_of_supply' => $inv->place_of_supply ?? '',
+
+//                 'invoice_value' => (float) $inv->grand_total,
+//                 'taxable_value' => (float) $inv->subtotal,
+
+//                 'gst_percent' => $inv->subtotal > 0
+//                     ? round(($inv->total_tax / $inv->subtotal) * 100, 2)
+//                     : 0,
+
+//                 'cgst' => round($inv->total_tax / 2, 2),
+//                 'sgst' => round($inv->total_tax / 2, 2),
+//                 'igst' => 0,
+
+//                 'total_tax' => (float) $inv->total_tax,
+//             ];
+//         }),
+//     ]);
+// }
+
+//update//
+
+//need //
+
 public function gstReport(Request $request)
 {
-    $user = auth()->user();
+    $user = $request->user();
 
     if (!$user) {
         return response()->json([
@@ -1706,62 +1803,155 @@ public function gstReport(Request $request)
         ], 401);
     }
 
-    // ✅ GET RANGE (default last_month)
     $range = $request->get('range', 'last_month');
-
-    // ✅ USE YOUR EXISTING FUNCTION
     [$start, $end] = $this->getDateRange($range, $request);
 
-    // ✅ GET BUSINESS DETAILS
     $business = BusinessDetail::where('user_id', $user->id)->first();
 
+    $rows = DB::table('invoice_items as ii')
+        ->join('invoices as inv', 'inv.id', '=', 'ii.invoice_id')
+        ->leftJoin('items as i', 'i.id', '=', 'ii.item_id')
+        ->leftJoin('parties as p', 'p.id', '=', 'inv.party_id')
+        ->where('inv.user_id', $user->id)
+        ->whereBetween('inv.invoice_date', [$start, $end])
+        ->select(
+            'inv.invoice_number',
+            'inv.invoice_date',
+            'p.party_name',
+            'i.name as item_name',
+            'i.hsn_code',
+            'ii.qty',
+            'ii.unit',
+            'ii.price',
+            'ii.discount',
+            'ii.gst_percent',
+            'ii.gst_amount',
+            'ii.line_total'
+        )
+        ->orderByDesc('inv.invoice_date')
+        ->orderBy('inv.id')
+        ->get()
+        ->map(function ($row) {
+            $qty = (float) ($row->qty ?? 0);
+            $price = (float) ($row->price ?? 0);
+            $discount = (float) ($row->discount ?? 0);
+            $tax = (float) ($row->gst_amount ?? 0);
+            $taxable = ($qty * $price) - $discount;
+            $gstRate = (float) ($row->gst_percent ?? 0);
 
-    // ✅ FILTER BY DATE
-    $invoices = Invoice::where('user_id', $user->id)
-        ->whereBetween('invoice_date', [$start, $end])
-        ->with('party')
-        ->orderBy('invoice_date', 'desc')
-        ->get();
+            // Split GST into CGST/SGST for this report.
+            // Inter-state invoices need IGST instead; see note below.
+            $cgst = round($tax / 2, 2);
+            $sgst = round($tax - $cgst, 2);
+
+            return [
+                'date' => $row->invoice_date,
+                'invoice_no' => $row->invoice_number,
+                'party_name' => $row->party_name ?? '',
+                'item_name' => $row->item_name ?? '',
+                'hsn_code' => $row->hsn_code ?? '',
+                'quantity' => $qty,
+                'unit' => $row->unit ?? '',
+                'price' => $price,
+                'taxable_value' => round($taxable, 2),
+                'gst_percent' => $gstRate,
+                'sgst' => $sgst,
+                'cgst' => $cgst,
+                'igst' => 0,
+                'amount' => (float) ($row->line_total ?? ($taxable + $tax)),
+            ];
+        })
+        ->values();
 
     return response()->json([
         'success' => true,
-
-        // ✅ ADD THIS
         'business' => [
-            'name'   => $business->business_name ?? '',
-            'mobile' => $business->mobile ?? '',
-            'gst'    => $business->gst_number ?? '',
+            'name' => $business->business_name ?? '',
+            'mobile' => $business->business_phone_number
+                ?? $user->mobile
+                ?? '',
+            'gst' => $business->gst_number ?? '',
         ],
-
-        // ✅ IMPORTANT (for Flutter UI)
         'start' => $start->toDateString(),
-        'end'   => $end->toDateString(),
-
-        'count' => $invoices->count(),
-
-        'data' => $invoices->map(function ($inv) {
-            return [
-                'invoice_no' => $inv->invoice_number,
-                'date' => $inv->invoice_date,
-                'party_name' => $inv->party->party_name ?? '',
-                'place_of_supply' => $inv->place_of_supply ?? '',
-
-                'invoice_value' => (float) $inv->grand_total,
-                'taxable_value' => (float) $inv->subtotal,
-
-                'gst_percent' => $inv->subtotal > 0
-                    ? round(($inv->total_tax / $inv->subtotal) * 100, 2)
-                    : 0,
-
-                'cgst' => round($inv->total_tax / 2, 2),
-                'sgst' => round($inv->total_tax / 2, 2),
-                'igst' => 0,
-
-                'total_tax' => (float) $inv->total_tax,
-            ];
-        }),
+        'end' => $end->toDateString(),
+        'count' => $rows->count(),
+        'data' => $rows,
     ]);
 }
+
+public function hsnSalesSummary(Request $request)
+{
+    $user = $request->user();
+
+    if (!$user) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Unauthorized',
+        ], 401);
+    }
+
+    $validated = $request->validate([
+        'from' => 'required|date',
+        'to' => 'required|date|after_or_equal:from',
+    ]);
+
+    $business = BusinessDetail::where(
+        'user_id',
+        $user->id
+    )->first();
+
+    $rows = DB::table('invoice_items as ii')
+        ->join('invoices as inv', 'inv.id', '=', 'ii.invoice_id')
+        ->leftJoin('items as i', 'i.id', '=', 'ii.item_id')
+        ->where('inv.user_id', $user->id)
+        ->whereBetween('inv.invoice_date', [
+            $validated['from'],
+            $validated['to'],
+        ])
+        ->select(
+            'i.hsn_code',
+            'i.name as item_name',
+            'ii.unit',
+            DB::raw('SUM(ii.qty) as total_quantity'),
+            DB::raw('SUM((ii.qty * ii.price) - COALESCE(ii.discount, 0)) as taxable_value'),
+            DB::raw('SUM(ii.line_total) as total_value'),
+            DB::raw('SUM(ii.gst_amount) as total_tax')
+        )
+        ->groupBy('i.hsn_code', 'i.name', 'ii.unit')
+        ->orderBy('i.hsn_code')
+        ->get()
+        ->map(function ($row) {
+            $tax = (float) $row->total_tax;
+
+            return [
+                'hsn' => $row->hsn_code ?? '',
+                'item_name' => $row->item_name ?? '',
+                'quantity' => (float) $row->total_quantity,
+                'unit' => $row->unit ?? '',
+                'total_value' => (float) $row->total_value,
+                'taxable_value' => (float) $row->taxable_value,
+                'igst' => 0.0,
+                'cgst' => round($tax / 2, 2),
+                'sgst' => round($tax - round($tax / 2, 2), 2),
+                'cess' => 0.0,
+                'total_tax' => $tax,
+            ];
+        });
+
+    return response()->json([
+        'success' => true,
+        'business' => [
+            'name' => $business->business_name ?? '',
+            'mobile' => $business->business_phone_number
+                ?? $user->mobile
+                ?? '',
+        ],
+        'start' => $validated['from'],
+        'end' => $validated['to'],
+        'data' => $rows,
+    ]);
+}
+
 
 
 public function gstReportPdf(Request $request)
@@ -1890,25 +2080,25 @@ public function show($id)
                 'trade_license_or_udyam' =>
                     $business->trade_license_or_udyam ?? '',
 
-                //need to add//    
+                //need to add//
 
                 'business_phone_number' =>
     ($business->show_phone_on_invoice ?? false)
         ? ($business->business_phone_number ?? '')
         : '',
 
-'business_email' => $business->business_email ?? '',    
+'business_email' => $business->business_email ?? '',
 
                 'mobile' =>
                     $business->mobile ?? '',
                   //need to add//
                  // ✅ VERY IMPORTANT
                 'invoice_format' =>
-                    $business->invoice_format ?? 'A4 Size - Template 1',  
-                    
+                    $business->invoice_format ?? 'A4 Size - Template 1',
+
                 'invoice_theme' => $business->invoice_theme ?? 'None',
                 'invoice_template' => $business->invoice_template ?? 'luxury',
-                'invoice_theme_color' => $business->invoice_theme_color ?? '#C62828',    
+                'invoice_theme_color' => $business->invoice_theme_color ?? '#C62828',
             ],
 
             'items' => $invoice->items->map(function ($row) {
@@ -1916,6 +2106,7 @@ public function show($id)
                     'item_id'     => $row->item_id,
                     'description' => $row->item->name ?? '',
                     'hsn'         => $row->item->hsn_code ?? '',
+                    'item_type'   => $row->item->item_type ?? '',
                     'qty'         => $row->qty,
                     'unit'        => $row->unit,
                     'price'       => $row->price,

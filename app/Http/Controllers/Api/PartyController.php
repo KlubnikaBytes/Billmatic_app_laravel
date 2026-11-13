@@ -9,12 +9,22 @@ use App\Models\PartyCategory;
 use App\Models\Invoice; // ✅ ADD THIS LINE
 use App\Models\ReceivedPayment;
 use App\Models\Purchase;
+use App\Models\Expense;
+//need//
+use App\Models\PurchaseOrder;
+use App\Models\DebitNote;
+use App\Models\SalesReturn;
+use App\Models\CreditNote;
+use App\Models\Quotation;
+use App\Models\DeliveryChallan;
+use App\Models\ProformaInvoice;
+use App\Models\AutomatedBillRun;
 
 
 
 class PartyController extends Controller
 {
-   
+
 
     public function index(Request $request)
 {
@@ -326,7 +336,7 @@ public function allTransactions(Request $request)
                 //need it add in server
                   // ✅ ADD THIS LINE (VERY IMPORTANT)
                 'invoice_id'     => $inv->id,
-                
+
                 'party_name'     => $inv->party->party_name ?? 'Unknown Party',
                 'number'         => $inv->invoice_number,
                 'date'           => $inv->invoice_date,
@@ -390,6 +400,284 @@ $purchases = $purchaseQuery
         ];
     });
 
+    //need//
+
+    // =====================================
+// 💸 EXPENSE QUERY
+// =====================================
+$expenseQuery = Expense::with('category')
+    ->where('user_id', $user->id);
+
+if ($from && $to) {
+    $expenseQuery->whereBetween('expense_date', [$from, $to]);
+}
+
+$expenses = $expenseQuery
+    ->get()
+    ->map(function ($expense) {
+        return [
+            'type'       => 'expense',
+            'expense_id' => $expense->id,
+            'party_name' => $expense->party_name
+                ?: ($expense->category->name ?? 'Expense'),
+            'number'     => $expense->expense_number,
+            'date'       => $expense->expense_date,
+            'amount'     => (float) $expense->total_amount,
+            'category_name' => $expense->category->name ?? '',
+            'status' => $expense->status,
+        ];
+    });
+
+    // =====================================
+// PURCHASE ORDER QUERY
+// =====================================
+$purchaseOrderQuery = PurchaseOrder::where('user_id', $user->id)
+    ->with('party:id,party_name');
+
+if ($from && $to) {
+    $purchaseOrderQuery->whereBetween('order_date', [$from, $to]);
+}
+
+$purchaseOrders = $purchaseOrderQuery
+    ->get()
+    ->map(function ($order) {
+        return [
+            'type' => 'purchase_order',
+            'purchase_order_id' => $order->id,
+            'party_name' => $order->party->party_name ?? 'Unknown Party',
+            'number' => $order->order_number,
+            'date' => $order->order_date,
+            'expiry_date' => $order->expiry_date,
+            'grand_total' => (float) $order->grand_total,
+            'status' => $order->converted_purchase_id
+                ? 'converted'
+                : 'ordered',
+        ];
+    });
+
+    // =====================================
+// DEBIT NOTE TRANSACTIONS
+// =====================================
+$debitNoteQuery = DebitNote::where('user_id', $user->id)
+    ->with('party:id,party_name');
+
+if ($from && $to) {
+    $debitNoteQuery->whereBetween('debit_note_date', [
+        substr($from, 0, 10),
+        substr($to, 0, 10),
+    ]);
+}
+
+$debitNotes = $debitNoteQuery
+    ->get()
+    ->map(function ($note) {
+        $total = (float) $note->grand_total;
+        $balance = (float) $note->balance_amount;
+
+        $status = $balance <= 0.01
+            ? 'credited'
+            : ($balance < $total
+                ? 'partially_credited'
+                : 'not_credited');
+
+        return [
+            'type' => 'debit_note',
+            'debit_note_id' => $note->id,
+            'party_name' => $note->party->party_name ?? 'Unknown Party',
+            'number' => $note->debit_note_number,
+            'date' => $note->debit_note_date,
+            'grand_total' => $total,
+            'received_amount' => (float) $note->received_amount,
+            'balance_amount' => $balance,
+            'status' => $status,
+        ];
+    });
+
+    // =====================================
+// SALES RETURN TRANSACTIONS
+// =====================================
+$salesReturnQuery = SalesReturn::where('user_id', $user->id)
+    ->with('party:id,party_name');
+
+if ($from && $to) {
+    $salesReturnQuery->whereBetween('sales_return_date', [
+        substr($from, 0, 10),
+        substr($to, 0, 10),
+    ]);
+}
+
+$salesReturns = $salesReturnQuery
+    ->get()
+    ->map(function ($return) {
+        $total = (float) $return->grand_total;
+        $paid = (float) $return->paid_amount;
+        $balance = (float) $return->balance_amount;
+
+        $status = $balance <= 0.01
+            ? 'refunded'
+            : ($paid > 0.01
+                ? 'partially_refunded'
+                : 'not_refunded');
+
+        return [
+            'type' => 'sales_return',
+            'sales_return_id' => $return->id,
+            'party_name' => $return->party->party_name ?? 'Unknown Party',
+            'number' => $return->sales_return_number,
+            'date' => $return->sales_return_date,
+            'grand_total' => $total,
+            'paid_amount' => $paid,
+            'balance_amount' => $balance,
+            'status' => $status,
+        ];
+    });
+
+    // =====================================
+// CREDIT NOTE TRANSACTIONS
+// =====================================
+$creditNoteQuery = CreditNote::where('user_id', $user->id)
+    ->with('party:id,party_name');
+
+if ($from && $to) {
+    $creditNoteQuery->whereBetween('credit_note_date', [
+        substr($from, 0, 10),
+        substr($to, 0, 10),
+    ]);
+}
+
+$creditNotes = $creditNoteQuery
+    ->get()
+    ->map(function ($note) {
+        $total = (float) $note->grand_total;
+        $paid = (float) $note->paid_amount;
+        $balance = (float) $note->balance_amount;
+
+        $status = $balance <= 0.01
+            ? 'refunded'
+            : ($paid > 0.01
+                ? 'partially_refunded'
+                : 'not_refunded');
+
+        return [
+            'type' => 'credit_note',
+            'credit_note_id' => $note->id,
+            'party_name' => $note->party->party_name ?? 'Unknown Party',
+            'number' => $note->credit_note_number,
+            'date' => $note->credit_note_date,
+            'grand_total' => $total,
+            'paid_amount' => $paid,
+            'balance_amount' => $balance,
+            'status' => $status,
+        ];
+    });
+
+
+    // =====================================
+    // QUOTATION / ESTIMATE TRANSACTIONS
+    // =====================================
+    $quotationQuery = Quotation::where('user_id', $user->id)
+        ->with('party:id,party_name');
+
+    if ($from && $to) {
+        $quotationQuery->whereBetween('quotation_date', [
+            substr($from, 0, 10),
+            substr($to, 0, 10),
+        ]);
+    }
+
+    $quotations = $quotationQuery
+        ->get()
+        ->map(function ($quotation) {
+            return [
+                'type' => 'quotation',
+                'quotation_id' => $quotation->id,
+                'party_name' => $quotation->party->party_name
+                    ?? 'Unknown Party',
+                'number' => $quotation->quotation_number,
+                'date' => $quotation->quotation_date,
+                'expiry_date' => $quotation->expiry_date,
+                'grand_total' => (float) $quotation->grand_total,
+                'status' => $quotation->status,
+            ];
+        });
+
+
+    // =====================================
+    // DELIVERY CHALLAN TRANSACTIONS
+    // =====================================
+    $deliveryChallanQuery = DeliveryChallan::where(
+        'user_id',
+        $user->id
+    )->with('party:id,party_name');
+
+    if ($from && $to) {
+        $deliveryChallanQuery->whereBetween('challan_date', [
+            substr($from, 0, 10),
+            substr($to, 0, 10),
+        ]);
+    }
+
+    $deliveryChallans = $deliveryChallanQuery
+        ->get()
+        ->map(function ($challan) {
+            return [
+                'type' => 'delivery_challan',
+                'delivery_challan_id' => $challan->id,
+                'party_name' => $challan->party->party_name
+                    ?? 'Unknown Party',
+                'number' => $challan->challan_number,
+                'date' => $challan->challan_date
+                    ->format('Y-m-d'),
+                'grand_total' => (float) $challan->grand_total,
+                'status' => $challan->status,
+                'converted_invoice_id' =>
+                    $challan->converted_invoice_id,
+            ];
+        });
+
+
+    // =====================================
+    // PROFORMA INVOICE TRANSACTIONS
+    // =====================================
+    $proformaInvoiceQuery = ProformaInvoice::where(
+        'user_id',
+        $user->id
+    )->with('party:id,party_name');
+
+    if ($from && $to) {
+        $proformaInvoiceQuery->whereBetween(
+            'proforma_date',
+            [
+                substr($from, 0, 10),
+                substr($to, 0, 10),
+            ]
+        );
+    }
+
+    $proformaInvoices = $proformaInvoiceQuery
+        ->get()
+        ->map(function ($proforma) {
+            return [
+                'type' => 'proforma_invoice',
+                'proforma_invoice_id' => $proforma->id,
+                'party_name' => $proforma->party->party_name
+                    ?? 'Unknown Party',
+                'number' => $proforma->proforma_number,
+                'date' => $proforma->proforma_date
+                    ->format('Y-m-d'),
+                'expiry_date' => $proforma->expiry_date
+                    ? $proforma->expiry_date->format('Y-m-d')
+                    : null,
+                'grand_total' => (float) $proforma->grand_total,
+                'status' => $proforma->status,
+                'converted_invoice_id' =>
+                    $proforma->converted_invoice_id,
+            ];
+        });
+
+
+
+
     // =====================================
     // 🔀 MERGE + SORT (LATEST FIRST)
     // =====================================
@@ -409,6 +697,15 @@ $purchases = $purchaseQuery
 $transactions = $invoices
     ->merge($payments)
     ->merge($purchases) // ✅ ADD THIS
+    //need//
+    ->merge($purchaseOrders)
+    ->merge($expenses)
+    ->merge($debitNotes)
+    ->merge($salesReturns)
+    ->merge($creditNotes)
+    ->merge($quotations)
+    ->merge($deliveryChallans)
+    ->merge($proformaInvoices)
     ->sortByDesc('date')
     ->values();
 
@@ -489,7 +786,7 @@ public function transactions($id)
         ->sortByDesc('date')
         ->values();
 
-    
+
     return response()->json([
     'success' => true,
     'party'   => [
@@ -854,5 +1151,157 @@ public function managedStoreCategory(Request $request)
         'data' => $category,
     ], $category->wasRecentlyCreated ? 201 : 200);
 }
+
+//need//
+public function partyStatement(Request $request, $id)
+{
+    $user = $request->user();
+
+    $party = Party::where('user_id', $user->id)
+        ->findOrFail($id);
+
+    $from = $request->query('from');
+    $to = $request->query('to');
+
+    $invoiceQuery = Invoice::where('user_id', $user->id)
+        ->where('party_id', $party->id);
+
+    if ($from) {
+        $invoiceQuery->whereDate('invoice_date', '>=', $from);
+    }
+
+    if ($to) {
+        $invoiceQuery->whereDate('invoice_date', '<=', $to);
+    }
+
+    $invoices = $invoiceQuery->get()->map(function ($invoice) {
+        return [
+            'date' => $invoice->invoice_date,
+            'reference' => $invoice->invoice_number,
+            'type' => 'Invoice',
+            'debit' => (float) $invoice->grand_total,
+            'credit' => 0.0,
+            'sort_id' => $invoice->id,
+        ];
+    });
+
+    $paymentQuery = ReceivedPayment::where(
+        'user_id',
+        $user->id
+    )->where('party_id', $party->id);
+
+    if ($from) {
+        $paymentQuery->whereDate('payment_date', '>=', $from);
+    }
+
+    if ($to) {
+        $paymentQuery->whereDate('payment_date', '<=', $to);
+    }
+
+    $payments = $paymentQuery->get()->map(function ($payment) {
+        return [
+            'date' => $payment->payment_date,
+            'reference' => $payment->payment_number,
+            'type' => 'Payment',
+            'debit' => 0.0,
+            'credit' => (float) $payment->amount,
+            'sort_id' => $payment->id,
+        ];
+    });
+
+    $transactions = $invoices
+        ->merge($payments)
+        ->sortBy('date')
+        ->values();
+
+    $openingBalance = (float) ($party->opening_balance ?? 0);
+    $balance = $openingBalance;
+
+    $transactions = $transactions->map(function ($row) use (&$balance) {
+        $balance += $row['debit'] - $row['credit'];
+
+        unset($row['sort_id']);
+
+        $row['balance'] = round($balance, 2);
+
+        return $row;
+    });
+
+    return response()->json([
+        'success' => true,
+        'party' => [
+            'id' => $party->id,
+            'party_name' => $party->party_name,
+            'party_type' => $party->party_type,
+            'contact_number' => $party->contact_number,
+            'opening_balance' => $openingBalance,
+            'opening_balance_type' => $party->opening_balance_type,
+        ],
+        'transactions' => $transactions,
+        'closing_balance' => round($balance, 2),
+    ]);
+}
+
+
+/**
+ * Party-wise outstanding report.
+ * Works with owner and managed-user authentication.
+ */
+public function partyWiseOutstanding(Request $request)
+{
+    $managedUser = $request->user('managed-api');
+
+    if ($managedUser) {
+        $ownerId = $managedUser->owner_user_id;
+    } else {
+        $owner = $request->user('api');
+
+        abort_unless($owner, 401, 'Unauthenticated.');
+
+        $ownerId = $owner->id;
+    }
+
+    $parties = Party::where('user_id', $ownerId)
+        ->where('opening_balance', '>', 0)
+        ->orderBy('party_name')
+        ->get([
+            'id',
+            'party_name',
+            'party_type',
+            'contact_number',
+            'opening_balance',
+            'opening_balance_type',
+        ]);
+
+    $data = $parties->map(function ($party) {
+        $balance = (float) $party->opening_balance;
+        $type = strtolower($party->opening_balance_type ?? '');
+
+        return [
+            'id' => $party->id,
+            'party_name' => $party->party_name,
+            'party_type' => $party->party_type,
+            'contact_number' => $party->contact_number,
+            'receivable' => $type === 'receive' ? $balance : 0.0,
+            'payable' => $type === 'pay' ? $balance : 0.0,
+        ];
+    })->values();
+
+    return response()->json([
+        'success' => true,
+        'data' => $data,
+        'summary' => [
+            'total_receivable' => round(
+                $data->sum('receivable'),
+                2
+            ),
+            'total_payable' => round(
+                $data->sum('payable'),
+                2
+            ),
+        ],
+    ]);
+}
+
 
 }
